@@ -3,6 +3,7 @@
 // anything not built in this MVP is labelled "Roadmap".
 import { useEffect, useState } from 'react'
 import { BRAND, PakkaMark, VeritasMark } from './brand.jsx'
+import { PLANS } from './businessModel.js'
 import HouseDrawing, { DRAWING_CALLOUTS } from './HouseDrawing.jsx'
 import { Bezel, EASE, Eyebrow, Icon, IslandButton, IslandNav, LineButton, Reveal, rupees } from './ui.jsx'
 
@@ -151,6 +152,7 @@ export default function Home() {
           { label: 'Method', href: '#how' },
           { label: 'Directive', href: '#directive' },
           { label: 'Vision', href: '#vision' },
+          { label: 'Plans', href: '#plans' },
           { label: 'Team', href: '#team' },
         ]}
         right={
@@ -651,6 +653,53 @@ export default function Home() {
               </ol>
             </Reveal>
           </div>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------ PLANS (pricing showcase; illustrative) */}
+      <section id="plans" className="scroll-mt-24 px-4 py-28 sm:px-8 md:py-40">
+        <div className="mx-auto max-w-7xl">
+          <SectionHead eyebrow="Plans" className="max-w-4xl">
+            The fee costs less than <em className="text-sage-600">one wrong payment.</em>
+          </SectionHead>
+          <Reveal delay={100}>
+            <p className="mt-6 max-w-2xl font-light leading-relaxed text-ink-mute">
+              About ₹20,000 for the whole build, around 0.4% of what a family puts in. One false “slab done” payment is
+              ₹2.5 lakh, about 12× the fee.
+            </p>
+          </Reveal>
+          <div className="mt-14 grid grid-cols-1 gap-4 md:grid-cols-3">
+            {PLANS.map((p, i) => (
+              <Reveal key={p.key} delay={i * 100}>
+                <Bezel radius="2rem" className={`h-full ${i === 0 ? 'shadow-float' : ''}`}
+                  core={`flex h-full flex-col p-8 ${i === 0 ? 'bg-[#1A1714] text-paper-light' : 'bg-paper-light'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[10px] uppercase tracking-[0.18em] ${i === 0 ? 'text-paper/50' : 'text-ink-mute'}`}>{p.who}</span>
+                    {i === 0 && <span className="rounded-full bg-ember-300 px-2.5 py-0.5 text-[10px] uppercase tracking-[0.16em] text-ink">Main plan</span>}
+                  </div>
+                  <h3 className="mt-4 font-display text-3xl">{p.name}</h3>
+                  <div className={`mt-5 font-display leading-none ${p.price.includes('–') ? 'text-4xl' : 'text-5xl'}`}>{p.price}</div>
+                  <div className={`mt-2 text-xs ${i === 0 ? 'text-paper/55' : 'text-ink-mute'}`}>{p.unit} · {p.alt}</div>
+                  <ul className="mt-6 space-y-2 text-sm">
+                    {p.includes.map((t) => (
+                      <li key={t} className="flex gap-2">
+                        <Icon name="check" className={`mt-0.5 h-4 w-4 shrink-0 ${i === 0 ? 'text-ember-300' : 'text-moss-500'}`} />
+                        <span className={i === 0 ? 'text-paper/85' : 'text-ink-soft'}>{t}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className={`mt-auto pt-6 text-[10px] uppercase tracking-[0.18em] ${i === 0 ? 'text-ember-200/70' : 'text-ochre-700'}`}>Price to validate</p>
+                </Bezel>
+              </Reveal>
+            ))}
+          </div>
+          <Reveal className="mt-10 flex flex-wrap items-center justify-between gap-6 border-t hairline pt-8">
+            <p className="max-w-2xl text-sm font-light text-ink-mute">
+              Families pay once per build. Engineer visits add margin. Lenders pay per loan instalment checked, every month,
+              and that makes the business recurring. Illustrative pricing from stated assumptions.
+            </p>
+            <LineButton href="#/business">See the business model</LineButton>
+          </Reveal>
         </div>
       </section>
 

@@ -15,7 +15,7 @@ DEFECT_MIN_CONF = 0.6
 POSSIBLE_DEFECT_MIN_CONF = 0.4   # below DEFECT_MIN_CONF: shown as "possible", never changes the verdict
 VOICE_MIN_CONF = 0.6             # below this, an amount or stage heard in a voice note is not trusted
 AMOUNT_TOLERANCE = 0.02  # 2% rounding slack
-RULES_VERSION = "1.5.0"  # 1.1 repeat · 1.2 voice/ahead/defects · 1.3 formwork veto · 1.4 m4 mesh, quality gate · 1.5 capture location
+RULES_VERSION = "1.6.0"  # 1.1 repeat · 1.2 voice/ahead/defects · 1.3 formwork veto · 1.4 m4 mesh, quality gate · 1.5 capture location · 1.6 already paid
 
 
 # A member's concrete can't be seen through its own formwork (see the veto in decide()).
@@ -67,7 +67,8 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
            previously_verified_at: Optional[float] = None,
            voice: Optional[VoiceClaim] = None,
            voice_failed: bool = False,
-           capture: Optional[CaptureCheck] = None) -> VerdictReport:
+           capture: Optional[CaptureCheck] = None,
+           previously_paid: Optional[tuple[int, str]] = None) -> VerdictReport:
     """amount_requested is what the OWNER typed. A voice-note amount is only used via resolve_amount()."""
     findings: list[Finding] = []
     ask_next: list[str] = []
@@ -206,11 +207,16 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
     work_visible = not serious and not missing and not off_site
 
     # 6. Repeat claim: this milestone was already verified once. Never let it look payable twice.
-    repeat = work_visible and previously_verified_at is not None
+    # previously_paid = (total recorded by the owner, date of the last payment). A paid stage can't be payable twice.
+    repeat = work_visible and (previously_verified_at is not None or previously_paid is not None)
     if repeat:
-        when = datetime.fromtimestamp(previously_verified_at).strftime("%Y-%m-%d")
-        findings.insert(0, Finding(kind="repeat", text=f"{milestone.name} was already verified on {when}. "
-                                                       f"Check it has not been paid already"))
+        if previously_paid is not None:
+            findings.insert(0, Finding(kind="repeat", text=f"{milestone.name} was already paid: {inr(previously_paid[0])} "
+                                                           f"recorded by you, last on {previously_paid[1]}"))
+        else:
+            when = datetime.fromtimestamp(previously_verified_at).strftime("%Y-%m-%d")
+            findings.insert(0, Finding(kind="repeat", text=f"{milestone.name} was already verified on {when}. "
+                                                           f"Check it has not been paid already"))
         ask_next.insert(0, "Check your payment records for this milestone before paying again")
 
     # 7. Verdict.

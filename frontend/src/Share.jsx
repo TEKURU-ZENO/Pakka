@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { VERDICT_TA } from './api.js'
 import { PakkaLogo } from './brand.jsx'
 import { Ledger } from './OwnerPanels.jsx'
-import { Bezel, Icon, Reveal, rupees } from './ui.jsx'
+import { Bezel, Icon, Reveal, RoleChip, rupees } from './ui.jsx'
 
 const VERDICT = {
   proven: { label: 'Work visible', chip: 'bg-moss-500', sheet: 'bg-moss-50', ink: 'text-moss-700' },
@@ -35,7 +35,8 @@ export default function Share({ token }) {
           {ta ? 'English' : 'தமிழ்'}
         </button>
       </header>
-      <main className="mx-auto max-w-3xl space-y-6 px-5 pb-16 pt-8">
+      <main className="mx-auto max-w-3xl space-y-6 px-5 pb-16 pt-6">
+        <RoleChip role="family" />
         {error && <p className="rounded-2xl bg-clay-50 p-6 text-center text-clay-700">{error}</p>}
         {data && (
           <>

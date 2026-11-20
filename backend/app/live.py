@@ -51,6 +51,14 @@ def site_brief(updates: Optional[list[dict]] = None) -> str:
     lines.append("")
     lines.append("MILESTONES VERIFIED (work visible, or engineer approved): "
                  + (", ".join(plan_by_id[m].name for m in sorted(verified) if m in plan_by_id) or "none yet"))
+    pays = store.list_payments()
+    if pays:
+        lines.append("PAYMENTS RECORDED BY THE OWNER (made outside PAKKA):")
+        for p in pays[:12]:
+            name = plan_by_id[p["milestone_id"]].name if p["milestone_id"] in plan_by_id else p["milestone_id"]
+            rec = {"confirmed": "mestri confirmed receipt", "disputed": "mestri DISPUTED it"}.get(p["receipt_status"] or "",
+                                                                                               "mestri has not answered")
+            lines.append(f"- {p['paid_on']}: {_inr(p['amount_inr'])} for {name} by {p['method']}; {rec}")
     lines.append("")
     if not updates:
         lines.append("CHECKS: none yet. No photos have been checked for this site.")

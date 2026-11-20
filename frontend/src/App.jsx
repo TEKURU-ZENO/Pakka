@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, VERDICT_TA } from './api.js'
 import AskSite from './AskSite.jsx'
-import { EngineerSignoff, Ledger, PlanEditor, ShareLinks } from './OwnerPanels.jsx'
-import { Bezel, EASE, Eyebrow, Icon, IslandButton, IslandNav, Reveal, rupees } from './ui.jsx'
+import LinkShare from './LinkShare.jsx'
+import { Activity, EngineerSignoff, Ledger, PaymentPanel, PlanEditor, ShareLinks } from './OwnerPanels.jsx'
+import { Bezel, EASE, Eyebrow, Icon, IslandButton, IslandNav, Reveal, RoleChip, rupees } from './ui.jsx'
 
 const VERDICT = {
   proven: {
@@ -241,7 +242,7 @@ export default function App() {
       </button>
       <IslandNav
         tone="light"
-        links={[{ label: 'Overview', href: '#/' }]}
+        links={[{ label: 'Overview', href: '#/' }, { label: 'Who’s who', href: '#/roles' }]}
         right={
           <>
             <button
@@ -275,7 +276,8 @@ export default function App() {
 
       <div className="bg-drafting">
         <div className="mx-auto max-w-7xl px-4 pb-10 pt-32 sm:px-8 md:pt-36">
-          <Reveal>
+          <Reveal className="flex flex-wrap items-center gap-3">
+            <RoleChip role="owner" />
             <Eyebrow>Verification desk</Eyebrow>
           </Reveal>
           <Reveal delay={100}>
@@ -541,23 +543,10 @@ function RequestProof({ plan, history, open }) {
         {err && <p className="mt-4 rounded-2xl bg-clay-50 p-3 text-xs text-clay-700">{err}</p>}
 
         {made && (
-          <div className="mt-6 rounded-2xl bg-sage-50 p-4 ring-1 ring-sage-200">
+          <div className="mt-6">
             <div className="text-[10px] uppercase tracking-[0.18em] text-ink-mute">Link for {made.milestone_name} · valid 7 days</div>
-            <code className="mt-2 block break-all font-mono text-xs text-ink">{made.url}</code>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                onClick={() => navigator.clipboard?.writeText(made.url).then(() => setCopied(true))}
-                className="rounded-full bg-white px-4 py-2 text-xs ring-1 ring-ink/10"
-              >
-                {copied ? 'Copied ✓' : 'Copy link'}
-              </button>
-              <a href={`https://wa.me/?text=${waText}`} target="_blank" rel="noreferrer" className="rounded-full bg-[#1A1714] px-4 py-2 text-xs text-paper-light">
-                Send on WhatsApp
-              </a>
-              <a href={made.path} target="_blank" rel="noreferrer" className="rounded-full px-4 py-2 text-xs text-ink-soft ring-1 ring-ink/10">
-                Preview as mestri
-              </a>
-            </div>
+            <LinkShare path={made.path} role="mestri" title={`Send proof: ${made.milestone_name}`}
+              whatsappText={`Please send proof for "${made.milestone_name}" using this link. Take the photos at the site with your phone camera:`} />
           </div>
         )}
 
@@ -593,6 +582,7 @@ function Empty({ plan, history, open, refresh, onPlanSaved }) {
   return (
     <div className="space-y-6">
       <Ledger refreshKey={`${refresh}-${history.length}`} history={history} onOpen={open} />
+      <Activity refreshKey={`${refresh}-${history.length}`} history={history} onOpen={open} />
       <RequestProof plan={plan} history={history} open={open} />
       <Reveal>
         <Bezel radius="2rem" core="bg-paper-light p-7 md:p-10">
@@ -847,6 +837,8 @@ function Verdict({ result, focus, setFocus, onChanged }) {
           </Reveal>
 
           <EngineerSignoff result={result} onSigned={(u) => onChanged(u)} />
+
+          {result.id && <div className="no-print"><PaymentPanel result={result} /></div>}
 
           {askNext.length > 0 && (
             <Reveal delay={140}>

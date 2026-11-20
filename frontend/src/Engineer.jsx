@@ -2,7 +2,7 @@
 // Sign-offs made here are stamped "signed via engineer link", so the owner can't sign in the engineer's name.
 import { useEffect, useState } from 'react'
 import { PakkaLogo } from './brand.jsx'
-import { Bezel, EASE, Icon, IslandButton } from './ui.jsx'
+import { Bezel, EASE, Icon, IslandButton, RoleChip } from './ui.jsx'
 
 const input = `w-full rounded-[0.8rem] bg-white px-4 py-3 text-sm text-ink outline-none ring-1 ring-ink/10 transition-shadow duration-500 ${EASE} placeholder:text-ink-faint focus:ring-sage-400`
 
@@ -56,7 +56,8 @@ export default function Engineer({ token }) {
           Engineer review
         </span>
       </header>
-      <main className="mx-auto max-w-3xl space-y-6 px-5 pb-16 pt-8">
+      <main className="mx-auto max-w-3xl space-y-6 px-5 pb-16 pt-6">
+        <RoleChip role="engineer" />
         {error && !data && <p className="rounded-2xl bg-clay-50 p-6 text-center text-clay-700">{error}</p>}
         {done && (
           <Bezel radius="2rem" core="bg-moss-50 p-8 text-center">

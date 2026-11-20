@@ -157,6 +157,9 @@ def _ledger() -> dict:
     for u in updates:  # newest first
         latest.setdefault(u["report"]["milestone_id"], u)
     rows, totals = [], {"verified": 0, "awaiting_engineer": 0, "not_verified": 0}
+    paid_by = {}
+    for p in store.list_payments():
+        paid_by.setdefault(p["milestone_id"], []).append(p)
     for m in current_plan():
         u = latest.get(m.id)
         if m.id in verified:
@@ -166,9 +169,14 @@ def _ledger() -> dict:
         else:
             status = "not_verified"
         totals[status] += m.amount_inr
+        pays = paid_by.get(m.id, [])
         rows.append({"milestone_id": m.id, "name": m.name, "amount_inr": m.amount_inr, "engineer_gate": m.engineer_gate,
                      "status": status, "verified_at": verified.get(m.id),
+                     "paid_inr": sum(p["amount_inr"] for p in pays),
+                     "payments": [{"id": p["id"], "amount_inr": p["amount_inr"], "paid_on": p["paid_on"],
+                                   "receipt_status": p["receipt_status"], "flags": p["flags"]} for p in pays],
                      "last_check": {"id": u["id"], "verdict": u["report"]["verdict"], "created": u["created"]} if u else None})
+    totals["paid"] = sum(r["paid_inr"] for r in rows)  # recorded by the owner; not part of the status split
     return {"milestones": rows, "totals": totals, "plan_total": sum(r["amount_inr"] for r in rows),
             "plan_version": plan_version()}
 
@@ -422,6 +430,7 @@ def run_check(files, milestone_id, amount_inr, claim_text, capture: Optional[dic
                              site_pinned=pinned)
     report = rules.decide(milestone, observations, amount_inr, model_name=perception.MODEL,
                           previously_verified_at=store.milestone_verified_at(milestone.id),
+                          previously_paid=_paid_summary(milestone.id),
                           voice=voice, voice_failed=voice_failed, capture=check)
     if report.audit_stamp:
         report.audit_stamp.plan_version = plan_version()
@@ -696,6 +705,172 @@ def shared_view(token: str):
         b.pop("consent", None)
         checks.append({k: b.get(k) for k in ("id", "created", "media", "report", "signoffs", "source")})
     return {"label": link["label"], "ledger": _ledger(), "checks": checks}
+
+
+# ---------------------------------------------------------------- recorded payments (PAKKA never moves money)
+PAY_METHODS = {"upi": "UPI", "bank": "Bank transfer", "cash": "Cash", "cheque": "Cheque", "other": "Other"}
+RECEIPT_TTL_S = 14 * 24 * 3600
+
+
+def _paid_summary(milestone_id: str) -> Optional[tuple[int, str]]:
+    pays = store.list_payments(milestone_id)
+    return (sum(p["amount_inr"] for p in pays), pays[0]["paid_on"]) if pays else None
+
+
+def _mask(ref: str) -> str:
+    ref = (ref or "").strip()
+    return ("••" + ref[-4:]) if len(ref) > 4 else ref
+
+
+@app.post("/api/payments", dependencies=[Depends(require_access)])
+def record_payment(
+    milestone_id: str = Body(...),
+    amount_inr: int = Body(..., ge=1, le=100_000_000),
+    method: str = Body(..., pattern="^(upi|bank|cash|cheque|other)$"),
+    paid_on: str = Body(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    reference: str = Body("", max_length=40),
+    note: str = Body("", max_length=300),
+):
+    """The owner records a payment they made outside PAKKA. PAKKA flags, never blocks: it's the owner's money."""
+    plan_by_id = current_by_id()
+    if milestone_id not in plan_by_id:
+        raise HTTPException(400, "Unknown milestone")
+    try:
+        day = datetime.strptime(paid_on, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Payment date must be a real date")
+    if day.date() > datetime.now().date():
+        raise HTTPException(400, "Payment date can't be in the future")
+    m = plan_by_id[milestone_id]
+    flags = []
+    if store.milestone_verified_at(milestone_id) is None:
+        flags.append("before_verification")
+    already = sum(p["amount_inr"] for p in store.list_payments(milestone_id))
+    if already + amount_inr > m.amount_inr * (1 + rules.AMOUNT_TOLERANCE):
+        flags.append("over_plan")
+    token = secrets.token_urlsafe(16)
+    p = store.add_payment(milestone_id, store.milestone_verified_update(milestone_id), amount_inr, method, paid_on,
+                          reference.strip(), note.strip(), flags, token, RECEIPT_TTL_S)
+    return {**_payment_view(p), "receipt_path": f"/#/receipt/{token}"}
+
+
+def _payment_view(p: dict) -> dict:
+    m = current_by_id().get(p["milestone_id"])
+    return {k: p[k] for k in ("id", "created", "milestone_id", "update_id", "amount_inr", "method", "paid_on", "reference",
+                              "note", "flags", "receipt_status", "receipt_at", "receipt_note", "receipt_expires")} | {
+        "milestone_name": m.name if m else p["milestone_id"], "milestone_name_ta": m.name_ta if m else "",
+        "planned_inr": m.amount_inr if m else None, "method_label": PAY_METHODS.get(p["method"], p["method"])}
+
+
+@app.get("/api/payments", dependencies=[Depends(require_access)])
+def list_payments():
+    return [{**_payment_view(p), "receipt_path": f"/#/receipt/{p['receipt_token']}"} for p in store.list_payments()]
+
+
+@app.get("/api/payments/{pid}", dependencies=[Depends(require_access)])
+def release_note(pid: str):
+    """Everything for the printable milestone release record: payment, evidence, engineer sign-offs, audit stamp."""
+    p = store.get_payment(pid)
+    if not p:
+        raise HTTPException(404, "Payment not found")
+    evidence = store.get_update(p["update_id"]) if p["update_id"] else None
+    return {"payment": {**_payment_view(p), "receipt_path": f"/#/receipt/{p['receipt_token']}"},
+            "evidence": _sign_body(evidence) if evidence else None,
+            "plan_version": plan_version(), "rules_version": rules.RULES_VERSION,
+            "generated_at": time.time()}
+
+
+def _open_receipt(token: str) -> dict:
+    p = store.payment_by_receipt_token(token) if re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token or "") else None
+    if not p or time.time() > p["receipt_expires"]:
+        raise HTTPException(404, "This link is not valid or has expired. Ask the owner for a new one")
+    return p
+
+
+@app.get("/api/receipt/{token}")
+def receipt_info(token: str):
+    """What the mestri sees: the payment the owner says they made. Not the owner's note, not other payments."""
+    p = _open_receipt(token)
+    v = _payment_view(p)
+    return {k: v[k] for k in ("milestone_name", "milestone_name_ta", "amount_inr", "method_label", "paid_on",
+                              "receipt_status", "receipt_at")} | {"reference": _mask(p["reference"])}
+
+
+@app.post("/api/receipt/{token}", dependencies=[Depends(rate_limit)])
+def receipt_confirm(token: str, response: str = Body(..., pattern="^(confirmed|disputed)$"),
+                    note: str = Body("", max_length=300)):
+    """The mestri confirms receiving the money, or disputes it. One answer per link; the amount can't be changed."""
+    p = _open_receipt(token)
+    if p["receipt_status"]:
+        raise HTTPException(409, "You have already answered for this payment")
+    if response == "disputed" and not note.strip():
+        raise HTTPException(400, "Please say what is wrong (for example, the amount you received)")
+    store.set_receipt(p["id"], response, note.strip())
+    return {"ok": True, "message": "Thank you. The owner will see your answer."}
+
+
+# ---------------------------------------------------------------- activity log (owner only)
+VERDICT_WORDS = {"proven": "work visible", "not_proven": "not proven yet", "needs_engineer": "needs an engineer"}
+
+
+@app.get("/api/activity", dependencies=[Depends(require_access)])
+def activity(limit: int = Query(60, ge=1, le=300)):
+    """Who did what, newest first. Built only from stored records: nothing is inferred."""
+    plan_by_id = current_by_id()
+    name = lambda mid: plan_by_id[mid].name if mid in plan_by_id else mid  # noqa: E731
+    events = []
+    for u in store.list_updates():
+        r = u["report"]
+        n = len(u.get("media") or [])
+        source = u.get("source")
+        verdict = VERDICT_WORDS.get(r["verdict"], r["verdict"])
+        if source == "capture_link":
+            role, text = "mestri", f"Mestri sent {n} photo{'s' * (n != 1)} via capture link for {r['milestone_name']}: {verdict}"
+        elif source == "owner_upload":
+            role, text = "owner", f"Owner uploaded {n} photo{'s' * (n != 1)} for {r['milestone_name']}: {verdict}"
+        else:  # records made before the source field existed: say so rather than guess
+            role, text = None, f"Check for {r['milestone_name']}: {verdict} (source not recorded)"
+        events.append({"at": u["created"], "role": role, "kind": "check", "text": text, "update_id": u["id"]})
+    for s_ in store.list_signoffs():
+        decision = "approved" if s_["decision"] == "approved" else "asked for rework on"
+        if s_.get("channel") == "engineer_link":
+            role, how = "engineer", "signed via engineer link"
+        elif s_.get("channel") == "owner_entered":
+            role, how = "owner", "entered by the owner on the engineer's behalf"
+        else:
+            role, how = None, "channel not recorded"
+        events.append({"at": s_["created"], "role": role, "kind": "signoff", "update_id": s_["update_id"],
+                       "text": f"{s_['engineer_name']} {decision} {name(s_['milestone_id'])} ({how})"})
+    for l in store.list_capture_links():
+        events.append({"at": l["created"], "role": "owner", "kind": "capture_link",
+                       "text": f"Owner created a capture link for {name(l['milestone_id'])}"})
+    for l in store.list_engineer_links():
+        b = store.get_update(l["update_id"])
+        events.append({"at": l["created"], "role": "owner", "kind": "engineer_link",
+                       "text": f"Owner sent an engineer link for {b['report']['milestone_name'] if b else 'a deleted check'}"})
+    for l in store.list_share_links(include_revoked=True):
+        events.append({"at": l["created"], "role": "owner", "kind": "share_link",
+                       "text": f"Owner shared read-only access with \"{l['label']}\""})
+        if l.get("revoked"):
+            events.append({"at": l["revoked"], "role": "owner", "kind": "share_revoked",
+                           "text": f"Owner revoked \"{l['label']}\"'s access"})
+    for p in store.list_payments():
+        v = _payment_view(p)
+        warn = []
+        if "before_verification" in p["flags"]:
+            warn.append("before the work was verified")
+        if "over_plan" in p["flags"]:
+            warn.append("more than the plan")
+        events.append({"at": p["created"], "role": "owner", "kind": "payment",
+                       "text": f"Owner recorded paying {rules.inr(p['amount_inr'])} for {v['milestone_name']} "
+                               f"by {v['method_label']} on {p['paid_on']}" + (f" ({', '.join(warn)})" if warn else "")})
+        if p["receipt_status"]:
+            said = "confirmed receiving" if p["receipt_status"] == "confirmed" else "disputed"
+            events.append({"at": p["receipt_at"], "role": "mestri", "kind": "receipt",
+                           "text": f"Mestri {said} {rules.inr(p['amount_inr'])} for {v['milestone_name']}"
+                                   + (f": {p['receipt_note']}" if p["receipt_note"] else "")})
+    events.sort(key=lambda e: e["at"], reverse=True)
+    return events[:limit]
 
 
 # Serve the built React app (copied to ./static by Dockerfile).

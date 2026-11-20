@@ -1,7 +1,8 @@
 // Owner panels: money ledger, editable payment plan, engineer sign-off, family share links.
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
-import { Bezel, EASE, Icon, IslandButton, Reveal, rupees } from './ui.jsx'
+import LinkShare from './LinkShare.jsx'
+import { Bezel, EASE, Icon, IslandButton, Reveal, RoleChip, rupees } from './ui.jsx'
 
 const label = 'block text-[10px] font-medium uppercase tracking-[0.2em] text-ink-mute'
 const input = `w-full rounded-[0.8rem] bg-paper-light px-4 py-3 text-sm text-ink shadow-inner-hi outline-none ring-1 ring-ink/[0.06] transition-shadow duration-500 ${EASE} placeholder:text-ink-faint focus:ring-sage-400`
@@ -32,7 +33,9 @@ export function Ledger({ refreshKey, onOpen, history, compact = false, data }) {
               {rupees(totals.verified)} <em className="text-ember-200">verified</em>
             </h2>
           </div>
-          <span className="font-mono text-xs text-paper/50">of {rupees(total)} planned</span>
+          <span className="font-mono text-xs text-paper/50">
+            of {rupees(total)} planned{typeof totals.paid === 'number' && ` · ${rupees(totals.paid)} paid (recorded)`}
+          </span>
         </div>
         <div className="mt-6 flex h-2 overflow-hidden rounded-full bg-white/10" aria-hidden="true">
           <span className="bg-moss-100" style={{ width: `${pct(totals.verified)}%` }} />
@@ -60,6 +63,11 @@ export function Ledger({ refreshKey, onOpen, history, compact = false, data }) {
                   <span className="flex shrink-0 items-center gap-3">
                     <span className="hidden text-[10px] uppercase tracking-[0.14em] text-paper/45 sm:inline">{st.text}</span>
                     <span className="font-mono text-xs text-paper/80">{rupees(m.amount_inr)}</span>
+                    {m.paid_inr > 0 && (
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] ${m.payments?.some((x) => x.receipt_status === 'disputed') ? 'bg-clay-500 text-paper-light' : 'bg-moss-100 text-moss-700'}`}>
+                        Paid {rupees(m.paid_inr)}{m.payments?.every((x) => x.receipt_status === 'confirmed') ? ' ✓' : ''}
+                      </span>
+                    )}
                     {h && onOpen && (
                       <button onClick={() => onOpen(h)} className="rounded-full px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-ember-200 ring-1 ring-ember-300/30">Open</button>
                     )}
@@ -208,17 +216,8 @@ export function EngineerSignoff({ result, onSigned }) {
           {!link ? (
             <div className="mt-3"><IslandButton variant="ink" onClick={makeLink} icon="arrow">Send to engineer</IslandButton></div>
           ) : (
-            <div className="mt-3 rounded-2xl bg-white p-4 ring-1 ring-clay-500/15">
-              <code className="block break-all font-mono text-xs">{link.url}</code>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button onClick={() => navigator.clipboard?.writeText(link.url).then(() => setCopied(true))} className="rounded-full bg-paper-light px-4 py-2 text-xs ring-1 ring-ink/10">
-                  {copied ? 'Copied ✓' : 'Copy link'}
-                </button>
-                <a href={`https://wa.me/?text=${encodeURIComponent(`Please review and sign off "${result.milestone?.name || r.milestone_name}" on PAKKA: ${link.url}`)}`}
-                  target="_blank" rel="noreferrer" className="rounded-full bg-[#1A1714] px-4 py-2 text-xs text-paper-light">Send on WhatsApp</a>
-                <a href={link.path} target="_blank" rel="noreferrer" className="rounded-full px-4 py-2 text-xs ring-1 ring-ink/10">Open as engineer</a>
-              </div>
-            </div>
+            <LinkShare path={link.path} role="engineer" title={`Engineer sign-off: ${result.milestone?.name || r.milestone_name}`}
+              whatsappText={`Please review and sign off "${result.milestone?.name || r.milestone_name}" on PAKKA:`} />
           )}
           {!manual && (
             <button onClick={() => setManual(true)} className="mt-3 text-xs text-ink-mute underline underline-offset-2">
@@ -259,7 +258,7 @@ export function EngineerSignoff({ result, onSigned }) {
 export function ShareLinks() {
   const [links, setLinks] = useState([])
   const [labelText, setLabelText] = useState('')
-  const [copied, setCopied] = useState('')
+  const [qr, setQr] = useState('')
   const load = () => api('/api/share-links').then((l) => setLinks(l || [])).catch(() => {})
   useEffect(() => { load() }, [])
   async function create() {
@@ -285,24 +284,201 @@ export function ShareLinks() {
         </div>
         {links.length > 0 && (
           <ul className="mt-6">
-            {links.map((l) => {
-              const url = `${location.origin}${l.path}`
-              return (
-                <li key={l.token} className="flex flex-wrap items-center justify-between gap-2 border-t hairline py-3 text-sm">
-                  <span className="font-display text-lg">{l.label}</span>
+            {links.map((l) => (
+              <li key={l.token} className="border-t hairline py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="flex items-center gap-2">
+                    <RoleChip role="family" size="sm" prefix={false} />
+                    <span className="font-display text-lg">{l.label}</span>
+                  </span>
                   <span className="flex gap-2">
-                    <button onClick={() => navigator.clipboard?.writeText(url).then(() => setCopied(l.token))} className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-ink/10">
-                      {copied === l.token ? 'Copied ✓' : 'Copy link'}
+                    <button onClick={() => setQr(qr === l.token ? '' : l.token)} className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-ink/10">
+                      {qr === l.token ? 'Hide link' : 'Link & QR'}
                     </button>
-                    <a href={l.path} target="_blank" rel="noreferrer" className="rounded-full px-3 py-1.5 text-xs ring-1 ring-ink/10">Preview</a>
                     <button onClick={() => revoke(l.token)} className="rounded-full px-3 py-1.5 text-xs text-clay-700 ring-1 ring-clay-500/20">Revoke</button>
                   </span>
-                </li>
-              )
-            })}
+                </div>
+                {qr === l.token && <LinkShare path={l.path} role="family" title={`Read-only view for ${l.label}`} />}
+              </li>
+            ))}
           </ul>
         )}
       </Bezel>
     </Reveal>
+  )
+}
+
+// ---------------------------------------------------------------- activity (who did what, newest first)
+export function Activity({ refreshKey, history, onOpen }) {
+  const [events, setEvents] = useState(null)
+  const [all, setAll] = useState(false)
+  useEffect(() => {
+    api('/api/activity').then(setEvents).catch(() => setEvents([]))
+  }, [refreshKey])
+  if (!events) return null
+  const shown = all ? events : events.slice(0, 8)
+  return (
+    <Reveal>
+      <Bezel radius="2rem" core="bg-paper-light p-7 md:p-10">
+        <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-ink-mute">Activity</span>
+        <h2 className="mt-3 font-display text-4xl leading-none">Who did what</h2>
+        {!events.length && <p className="mt-4 text-sm font-light text-ink-mute">Nothing yet. Checks, sign-offs and links will show here.</p>}
+        <ol className="mt-6">
+          {shown.map((e, i) => {
+            const h = e.update_id && history?.find((x) => x.id === e.update_id)
+            return (
+              <li key={`${e.kind}-${e.at}-${i}`} className="flex items-start gap-3 border-t hairline py-3 text-sm">
+                {e.role ? (
+                  <RoleChip role={e.role} size="sm" prefix={false} className="mt-0.5" />
+                ) : (
+                  <span className="mt-0.5 rounded-full px-2 py-0.5 text-[11px] text-ink-faint ring-1 ring-ink/10">Unknown</span>
+                )}
+                <span className="min-w-0 flex-1 leading-relaxed text-ink-soft">
+                  {e.text}
+                  <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">
+                    {new Date(e.at * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                  </span>
+                </span>
+                {h && onOpen && (
+                  <button onClick={() => onOpen(h)} className="shrink-0 rounded-full px-3 py-1 text-xs ring-1 ring-ink/10 hover:bg-white">Open</button>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+        {events.length > 8 && (
+          <button onClick={() => setAll((a) => !a)} className="mt-3 text-xs text-ink-mute underline underline-offset-2">
+            {all ? 'Show fewer' : `Show all ${events.length}`}
+          </button>
+        )}
+      </Bezel>
+    </Reveal>
+  )
+}
+
+
+// ---------------------------------------------------------------- record a payment (made outside PAKKA)
+const METHODS = [['upi', 'UPI'], ['bank', 'Bank transfer'], ['cash', 'Cash'], ['cheque', 'Cheque'], ['other', 'Other']]
+const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+const RECEIPT = {
+  confirmed: ['Mestri confirmed receipt', 'bg-moss-50 text-moss-700'],
+  disputed: ['Mestri disputed this', 'bg-clay-50 text-clay-700'],
+  '': ['Waiting for the mestri to confirm', 'bg-ochre-50 text-ochre-700'],
+}
+
+export function PaymentPanel({ result, onRecorded }) {
+  const r = result.report
+  const milestoneId = r.milestone_id
+  const verified = r.verdict === 'proven' || (result.signoffs || []).some((s) => s.decision === 'approved')
+  const [pays, setPays] = useState([])
+  const [form, setForm] = useState({ amount_inr: '', method: 'upi', paid_on: today(), reference: '', note: '' })
+  const [made, setMade] = useState(null)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const load = () => api('/api/payments').then((all) => setPays((all || []).filter((p) => p.milestone_id === milestoneId))).catch(() => {})
+  useEffect(() => { load() }, [milestoneId])
+  const paid = pays.reduce((s, p) => s + p.amount_inr, 0)
+  const planned = r.amount_planned_inr
+  useEffect(() => setForm((f) => ({ ...f, amount_inr: String(Math.max(planned - paid, 0) || '') })), [paid, planned])
+
+  async function submit(e) {
+    e.preventDefault()
+    setErr('')
+    setBusy(true)
+    try {
+      const p = await api('/api/payments', { method: 'POST', json: { ...form, milestone_id: milestoneId, amount_inr: Number(form.amount_inr) } })
+      setMade(p)
+      load()
+      onRecorded?.()
+    } catch (x) {
+      setErr(x.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Bezel radius="2rem" core="bg-paper-light p-6">
+      <span className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.2em] text-ink-mute">
+        <Icon name="coins" className="h-4 w-4" /> Record a payment
+      </span>
+      <p className="mt-2 text-sm font-light leading-relaxed text-ink-soft">
+        Pay the mestri your usual way (UPI, bank, cash), then record it here. PAKKA never moves money: it keeps the
+        record, asks the mestri to confirm, and prints a release note.
+      </p>
+      {!verified && (
+        <p className="mt-3 rounded-xl bg-ochre-50 p-3 text-xs text-ochre-700">
+          This stage is not verified yet. You can still record a payment; it will be marked “paid before the work was verified”.
+        </p>
+      )}
+
+      {pays.length > 0 && (
+        <ul className="mt-4 space-y-2">
+          {pays.map((p) => {
+            const [text, tone] = RECEIPT[p.receipt_status || '']
+            return (
+              <li key={p.id} className="rounded-2xl bg-white p-3 text-sm ring-1 ring-ink/[0.06]">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono">{rupees(p.amount_inr)} · {p.method_label} · {p.paid_on}</span>
+                  <a href={`#/release/${p.id}`} className="rounded-full bg-ink px-3 py-1.5 text-xs text-paper-light">Release note</a>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] ${tone}`}>{text}</span>
+                  {p.flags.includes('before_verification') && <span className="rounded-full bg-ochre-50 px-2 py-0.5 text-[11px] text-ochre-700">Paid before verification</span>}
+                  {p.flags.includes('over_plan') && <span className="rounded-full bg-clay-50 px-2 py-0.5 text-[11px] text-clay-700">More than the plan</span>}
+                </div>
+                {p.receipt_note && <p className="mt-2 text-xs text-ink-soft">Mestri: “{p.receipt_note}”</p>}
+                {!p.receipt_status && (
+                  <details className="mt-2 text-xs text-ink-mute">
+                    <summary className="cursor-pointer">Mestri confirmation link</summary>
+                    <LinkShare path={p.receipt_path} role="mestri" title={`Confirm payment: ${p.milestone_name}`}
+                      whatsappText={`I have paid ${rupees(p.amount_inr)} for "${p.milestone_name}". Please confirm you received it:`} />
+                  </details>
+                )}
+              </li>
+            )
+          })}
+          <li className="px-1 text-xs text-ink-mute">Recorded {rupees(paid)} of {rupees(planned)} planned.</li>
+        </ul>
+      )}
+
+      {made && (
+        <div className="mt-4">
+          <p className="text-sm text-moss-700">Recorded. Send the mestri this link to confirm they received {rupees(made.amount_inr)}:</p>
+          <LinkShare path={made.receipt_path} role="mestri" title={`Confirm payment: ${made.milestone_name}`}
+            whatsappText={`I have paid ${rupees(made.amount_inr)} for "${made.milestone_name}". Please confirm you received it:`} />
+        </div>
+      )}
+
+      <form onSubmit={submit} className="mt-5 grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className={label}>Amount paid (₹)</span>
+          <input required inputMode="numeric" value={form.amount_inr} onChange={(e) => setForm({ ...form, amount_inr: e.target.value.replace(/\D/g, '') })} className={`${input} mt-2 font-mono`} />
+        </label>
+        <label className="block">
+          <span className={label}>Paid on</span>
+          <input required type="date" max={today()} value={form.paid_on} onChange={(e) => setForm({ ...form, paid_on: e.target.value })} className={`${input} mt-2`} />
+        </label>
+        <label className="block">
+          <span className={label}>How</span>
+          <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })} className={`${input} mt-2 appearance-none`}>
+            {METHODS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className={label}>Reference (optional)</span>
+          <input maxLength={40} placeholder="UPI or bank transaction ID" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} className={`${input} mt-2 font-mono`} />
+        </label>
+        <label className="block sm:col-span-2">
+          <span className={label}>Note (optional)</span>
+          <input maxLength={300} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={`${input} mt-2`} />
+        </label>
+        {err && <p className="text-xs text-clay-700 sm:col-span-2">{err}</p>}
+        <div className="sm:col-span-2">
+          <IslandButton variant="ink" type="submit" disabled={busy || !form.amount_inr} icon="check">{busy ? 'Saving…' : 'Record payment'}</IslandButton>
+          <p className="mt-2 text-[11px] text-ink-faint">Don’t enter bank account numbers. A transaction ID is enough.</p>
+        </div>
+      </form>
+    </Bezel>
   )
 }

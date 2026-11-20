@@ -3,7 +3,7 @@
 // The mestri gets a receipt; the verdict goes to the owner.
 import { useEffect, useState } from 'react'
 import { PakkaLogo } from './brand.jsx'
-import { Bezel, EASE, Icon, IslandButton, rupees } from './ui.jsx'
+import { Bezel, EASE, Icon, IslandButton, RoleChip, rupees } from './ui.jsx'
 
 const T = (en, ta) => (
   <>
@@ -120,7 +120,8 @@ export default function Capture({ token }) {
         </span>
       </header>
 
-      <main className="mx-auto max-w-lg px-5 pb-16 pt-8">
+      <main className="mx-auto max-w-lg px-5 pb-16 pt-6">
+        <RoleChip role="mestri" className="mb-6" />
         {error && !info && (
           <Bezel radius="2rem" core="bg-clay-50 p-8 text-center">
             <Icon name="x" className="mx-auto h-8 w-8 text-clay-500" />

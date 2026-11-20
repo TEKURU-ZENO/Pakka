@@ -48,6 +48,14 @@ _db.execute("CREATE TABLE IF NOT EXISTS signoffs (id TEXT PRIMARY KEY, created R
 _db.execute("CREATE TABLE IF NOT EXISTS share_links (token TEXT PRIMARY KEY, created REAL, expires REAL, label TEXT)")
 _db.execute("CREATE TABLE IF NOT EXISTS engineer_links (token TEXT PRIMARY KEY, created REAL, expires REAL, update_id TEXT, "
             "used REAL)")
+# Payments are RECORDED, never made: the owner pays outside PAKKA (UPI, bank, cash) and records it here.
+_db.execute("CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, created REAL, milestone_id TEXT, update_id TEXT, "
+            "amount_inr INTEGER, method TEXT, paid_on TEXT, reference TEXT, note TEXT, flags TEXT, "
+            "receipt_token TEXT, receipt_expires REAL, receipt_status TEXT, receipt_at REAL, receipt_note TEXT)")
+try:  # revocation is recorded (for the owner's activity log), not deleted; revoked links still can't be used
+    _db.execute("ALTER TABLE share_links ADD COLUMN revoked REAL")
+except sqlite3.OperationalError:
+    pass
 try:  # who entered the sign-off: the engineer through their own link, or the owner on their behalf
     _db.execute("ALTER TABLE signoffs ADD COLUMN channel TEXT")
 except sqlite3.OperationalError:
@@ -177,7 +185,7 @@ def reset_all():
     """Wipes records and fingerprints. Used by tests and by the mock-mode demo reset."""
     with _lock:
         for table in ("updates", "image_hashes", "image_sha256", "milestone_verified", "capture_links",
-                      "plan_overrides", "signoffs", "share_links", "engineer_links"):
+                      "plan_overrides", "signoffs", "share_links", "engineer_links", "payments"):
             _db.execute(f"DELETE FROM {table}")
         _db.commit()
 
@@ -238,22 +246,36 @@ def create_share_link(token: str, label: str, ttl_s: float):
         _db.commit()
 
 
+_SHARE_COLS = ("token", "created", "expires", "label", "revoked")
+
+
 def get_share_link(token: str) -> Optional[dict]:
+    """The link, or None if it doesn't exist or was revoked (a revoked link can never be used again)."""
     with _lock:
-        row = _db.execute("SELECT token, created, expires, label FROM share_links WHERE token = ?", (token,)).fetchone()
-    return dict(zip(("token", "created", "expires", "label"), row)) if row else None
+        row = _db.execute(f"SELECT {', '.join(_SHARE_COLS)} FROM share_links WHERE token = ? AND revoked IS NULL",
+                          (token,)).fetchone()
+    return dict(zip(_SHARE_COLS, row)) if row else None
 
 
-def list_share_links() -> list[dict]:
+def list_share_links(include_revoked: bool = False) -> list[dict]:
+    q = f"SELECT {', '.join(_SHARE_COLS)} FROM share_links"
+    if not include_revoked:
+        q += " WHERE revoked IS NULL"
     with _lock:
-        rows = _db.execute("SELECT token, created, expires, label FROM share_links ORDER BY created DESC").fetchall()
-    return [dict(zip(("token", "created", "expires", "label"), r)) for r in rows]
+        rows = _db.execute(q + " ORDER BY created DESC").fetchall()
+    return [dict(zip(_SHARE_COLS, r)) for r in rows]
 
 
 def revoke_share_link(token: str):
     with _lock:
-        _db.execute("DELETE FROM share_links WHERE token = ?", (token,))
+        _db.execute("UPDATE share_links SET revoked = ? WHERE token = ? AND revoked IS NULL", (time.time(), token))
         _db.commit()
+
+
+def list_engineer_links() -> list[dict]:
+    with _lock:
+        rows = _db.execute("SELECT token, created, expires, update_id, used FROM engineer_links").fetchall()
+    return [dict(zip(("token", "created", "expires", "update_id", "used"), r)) for r in rows]
 
 
 # ---------------------------------------------------------------- erasure and retention (DPDP Act 2023, s.8(7), s.12)
@@ -296,6 +318,7 @@ def purge_older_than(days: float) -> int:
     for uid in ids:
         delete_update(uid)
     with _lock:
+        _db.execute("DELETE FROM payments WHERE created < ?", (cutoff,))
         _db.execute("DELETE FROM capture_links WHERE expires < ?", (cutoff,))
         _db.execute("DELETE FROM share_links WHERE expires < ?", (time.time(),))
         _db.commit()
@@ -323,3 +346,61 @@ def use_engineer_link(token: str):
     with _lock:
         _db.execute("UPDATE engineer_links SET used = ? WHERE token = ?", (time.time(), token))
         _db.commit()
+
+
+
+# ---------------------------------------------------------------- recorded payments + mestri receipt confirmation
+_PAY_COLS = ("id", "created", "milestone_id", "update_id", "amount_inr", "method", "paid_on", "reference", "note", "flags",
+             "receipt_token", "receipt_expires", "receipt_status", "receipt_at", "receipt_note")
+
+
+def _pay_row(row) -> dict:
+    d = dict(zip(_PAY_COLS, row))
+    d["flags"] = json.loads(d["flags"] or "[]")
+    return d
+
+
+def add_payment(milestone_id: str, update_id: Optional[str], amount_inr: int, method: str, paid_on: str,
+                reference: str, note: str, flags: list[str], receipt_token: str, receipt_ttl_s: float) -> dict:
+    pid = uuid.uuid4().hex[:10]
+    now = time.time()
+    with _lock:
+        _db.execute(f"INSERT INTO payments ({', '.join(_PAY_COLS)}) VALUES ({', '.join('?' * len(_PAY_COLS))})",
+                    (pid, now, milestone_id, update_id, amount_inr, method, paid_on, reference, note, json.dumps(flags),
+                     receipt_token, now + receipt_ttl_s, None, None, None))
+        _db.commit()
+    return get_payment(pid)
+
+
+def get_payment(pid: str) -> Optional[dict]:
+    with _lock:
+        row = _db.execute(f"SELECT {', '.join(_PAY_COLS)} FROM payments WHERE id = ?", (pid,)).fetchone()
+    return _pay_row(row) if row else None
+
+
+def payment_by_receipt_token(token: str) -> Optional[dict]:
+    with _lock:
+        row = _db.execute(f"SELECT {', '.join(_PAY_COLS)} FROM payments WHERE receipt_token = ?", (token,)).fetchone()
+    return _pay_row(row) if row else None
+
+
+def list_payments(milestone_id: Optional[str] = None) -> list[dict]:
+    q, args = f"SELECT {', '.join(_PAY_COLS)} FROM payments", ()
+    if milestone_id:
+        q, args = q + " WHERE milestone_id = ?", (milestone_id,)
+    with _lock:
+        rows = _db.execute(q + " ORDER BY created DESC", args).fetchall()
+    return [_pay_row(r) for r in rows]
+
+
+def set_receipt(pid: str, status: str, note: str):
+    with _lock:
+        _db.execute("UPDATE payments SET receipt_status = ?, receipt_at = ?, receipt_note = ? WHERE id = ?",
+                    (status, time.time(), note, pid))
+        _db.commit()
+
+
+def milestone_verified_update(milestone_id: str) -> Optional[str]:
+    with _lock:
+        row = _db.execute("SELECT update_id FROM milestone_verified WHERE milestone_id = ?", (milestone_id,)).fetchone()
+    return row[0] if row else None

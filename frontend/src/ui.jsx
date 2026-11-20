@@ -277,3 +277,29 @@ export function LineButton({ children, href, onClick, dark = false, className = 
 }
 
 export const rupees = (n) => (n == null ? '—' : '₹' + Number(n).toLocaleString('en-IN'))
+
+// ---------------------------------------------------------------- role chip (who is looking at this screen)
+export const ROLES = {
+  owner: { en: 'Owner', ta: 'உரிமையாளர்', icon: 'house', tone: 'bg-[#1A1714] text-ember-200 ring-white/10' },
+  mestri: { en: 'Mestri', ta: 'மேஸ்திரி', icon: 'camera', tone: 'bg-sage-600 text-paper-light ring-sage-700/20' },
+  engineer: { en: 'Engineer', ta: 'பொறியாளர்', icon: 'hardhat', tone: 'bg-clay-500 text-paper-light ring-clay-700/20' },
+  family: { en: 'Family', ta: 'குடும்பம்', icon: 'globe', tone: 'bg-ochre-500 text-paper-light ring-ochre-700/20' },
+}
+
+/** "You are: Owner · உரிமையாளர்". size="sm" for inline use in lists. */
+export function RoleChip({ role, size = 'md', prefix = true, className = '' }) {
+  const r = ROLES[role]
+  if (!r) return null
+  const sm = size === 'sm'
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full ring-1 ${r.tone} ${sm ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1.5 text-xs'} ${className}`}
+      aria-label={`${prefix ? 'You are viewing as ' : ''}${r.en}`}
+    >
+      <Icon name={r.icon} className={sm ? 'h-3 w-3' : 'h-3.5 w-3.5'} strokeWidth={1.6} />
+      {prefix && !sm && <span className="opacity-70">You are</span>}
+      <span className="font-medium">{r.en}</span>
+      <span className="opacity-80" lang="ta">· {r.ta}</span>
+    </span>
+  )
+}
