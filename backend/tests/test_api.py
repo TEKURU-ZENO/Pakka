@@ -50,13 +50,10 @@ def test_duplicate_photo_integrity_check(monkeypatch):
     monkeypatch.setattr(p, "MOCK", True)
     monkeypatch.setenv("PAKKA_MOCK", "1")
 
-    # Generate unique in-memory patterned image based on current timestamp
-    t = int(time.time() * 1000) % 256
-    img = Image.new("RGB", (100, 100))
-    for x in range(100):
-        for y in range(100):
-            img.putpixel((x, y), ((x * 3 + t) % 256, (y * 5 + t) % 256, (x + y + t) % 256))
-
+    # Generate unique in-memory image using cryptographically random noise
+    import os
+    raw = os.urandom(2500)
+    img = Image.frombytes("L", (50, 50), raw)
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
     img_bytes = buf.getvalue()
