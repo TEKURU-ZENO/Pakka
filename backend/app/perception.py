@@ -96,9 +96,13 @@ def understand_voice(path: Path) -> VoiceClaim:
 
 
 def _mock_observation(path: Path) -> MediaObservation:
-    """Picks a canned observation by filename keyword, e.g. 'shuttering_1.jpg' -> mock/shuttering.json."""
+    """Picks a canned observation by filename keyword, prioritizing defect/quality keywords."""
     name = path.stem.lower()
-    for f in sorted(MOCK_DIR.glob("*.json")):
+    files = sorted(
+        MOCK_DIR.glob("*.json"),
+        key=lambda f: (f.stem not in ("honeycomb", "blurry"), -len(f.stem)),
+    )
+    for f in files:
         if f.stem != "voice" and f.stem in name:
             return MediaObservation.model_validate_json(f.read_text())
     return MediaObservation.model_validate_json((MOCK_DIR / "shuttering.json").read_text())
