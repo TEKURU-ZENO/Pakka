@@ -1,0 +1,3 @@
+# Scripts and the Dockerfile run on Linux (Cloud Shell, Cloud Build): always LF, whatever the editor or OS.
+*.sh text eol=lf
+Dockerfile text eol=lf

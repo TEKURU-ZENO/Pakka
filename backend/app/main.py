@@ -12,7 +12,7 @@ import time
 import uuid
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -708,6 +708,15 @@ def shared_view(token: str):
 
 
 # ---------------------------------------------------------------- recorded payments (PAKKA never moves money)
+# Owners are in India; Cloud Run's clock is UTC. Between 00:00 and 05:30 IST the UTC date is still "yesterday",
+# so "today" must be India's date or a payment made after midnight is refused as future-dated. (No DST in India.)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _india_today():
+    return datetime.now(IST).date()
+
+
 PAY_METHODS = {"upi": "UPI", "bank": "Bank transfer", "cash": "Cash", "cheque": "Cheque", "other": "Other"}
 RECEIPT_TTL_S = 14 * 24 * 3600
 
@@ -739,7 +748,7 @@ def record_payment(
         day = datetime.strptime(paid_on, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(400, "Payment date must be a real date")
-    if day.date() > datetime.now().date():
+    if day.date() > _india_today():
         raise HTTPException(400, "Payment date can't be in the future")
     m = plan_by_id[milestone_id]
     flags = []

@@ -121,3 +121,13 @@ def test_payment_endpoints_need_the_owner_key(monkeypatch):
     assert c.get("/api/payments").status_code == 401
     assert c.get(f"/api/payments/{pid}").status_code == 401
     assert c.get("/api/receipt/not-a-real-token-xxxxx").status_code == 404
+
+
+def test_payment_date_uses_india_time_not_the_server_clock(monkeypatch):
+    """Cloud Run runs in UTC. At 00:30 IST the UTC date is still yesterday; today's Indian date must be accepted."""
+    india_today = date(2026, 11, 21)
+    monkeypatch.setattr(main, "_india_today", lambda: india_today)
+    c = TestClient(main.app)
+    assert pay(c, milestone="m2", amount=1000, paid_on="2026-11-21").status_code == 200
+    assert pay(c, milestone="m2", amount=1000, paid_on="2026-11-22").status_code == 400
+    assert main.IST.utcoffset(None).total_seconds() == 5.5 * 3600

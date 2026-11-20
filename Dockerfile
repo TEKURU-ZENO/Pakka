@@ -18,6 +18,9 @@ COPY --from=web /web/dist ./static
 # SQLite stays on /tmp (small). Media goes to PAKKA_MEDIA_DIR: a Cloud Storage volume mount in deploy.sh,
 # because /tmp on Cloud Run is in-memory and a few videos would exhaust the instance.
 ENV PAKKA_DATA=/tmp/pakka
+# Owners are in India: show times like "Already sent on ..." in IST, not Cloud Run's UTC. A POSIX TZ string needs no
+# tzdata in the slim image, and India has no daylight saving.
+ENV TZ=IST-5:30
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin pakka && mkdir -p /tmp/pakka && chown pakka /tmp/pakka
 USER 10001
 CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
