@@ -5,7 +5,7 @@ import { Bezel, EASE, Eyebrow, Icon, IslandButton, IslandNav, Reveal, rupees } f
 
 const VERDICT = {
   proven: {
-    label: 'Proven', icon: 'check',
+    label: 'Work visible', icon: 'check',
     sheet: 'bg-moss-50', ink: 'text-moss-700', chip: 'bg-moss-500 text-paper-light', accent: 'text-moss-500',
   },
   not_proven: {
@@ -143,6 +143,13 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [history, setHistory] = useState([])
   const [scenario, setScenario] = useState('')
+  const verdictRef = useRef(null)
+
+  useEffect(() => {
+    if (result && verdictRef.current) {
+      verdictRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [result])
 
   const loadHistory = () =>
     api('/api/updates')
@@ -391,7 +398,7 @@ export default function App() {
         </Reveal>
 
         {/* ------------------------------------------------ result */}
-        <section aria-live="polite">
+        <section id="verdict" ref={verdictRef} aria-live="polite" className="scroll-mt-28 md:scroll-mt-32">
           {!result && !busy && (
             <Empty
               plan={plan}
@@ -525,9 +532,9 @@ function Verdict({ result, focus, setFocus }) {
     .filter((f) => f.box_2d && (f.media_index ?? 0) === shownIndex)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 scroll-mt-28 md:scroll-mt-32">
       {/* Verdict sheet */}
-      <Reveal>
+      <Reveal className="scroll-mt-28 md:scroll-mt-32">
         <Bezel radius="2rem" className="shadow-float" core={`relative overflow-hidden ${v.sheet} p-7 md:p-10`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-mute">

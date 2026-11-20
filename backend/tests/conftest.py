@@ -6,6 +6,8 @@ import os
 import tempfile
 
 os.environ["PAKKA_DATA"] = tempfile.mkdtemp(prefix="pakka_test_")
+os.environ["PAKKA_SKIP_DOTENV"] = "1"
+os.environ["PAKKA_MOCK"] = "1"
 os.environ.pop("PAKKA_ACCESS_KEY", None)
 
 import pytest  # noqa: E402

@@ -104,7 +104,7 @@ def _reset_enabled() -> bool:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "mock": perception.is_mock(), "model": perception.MODEL,
+    return {"ok": True, "mock": perception.is_mock(), "model": perception.MODEL, "backend": perception.backend_name(),
             "access_key_required": bool(_access_key()), "demo_reset": _reset_enabled()}
 
 

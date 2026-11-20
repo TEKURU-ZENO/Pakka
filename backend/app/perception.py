@@ -5,6 +5,7 @@ Set PAKKA_MOCK=1 to run without an API key (offline demo fallback when venue wif
 from __future__ import annotations
 
 import logging
+import re
 import mimetypes
 import os
 import threading
@@ -16,7 +17,7 @@ from typing import Optional
 from .prompts import SITE_PROMPT, VOICE_PROMPT
 from .schemas import MediaObservation, VoiceClaim
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # check AI Studio for newest Flash model
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")  # check AI Studio for newest Flash model
 MOCK = os.getenv("PAKKA_MOCK") == "1"
 INLINE_LIMIT = 18 * 1024 * 1024  # files over 18MB go through Files API
 MOCK_DIR = Path(__file__).parent / "mock"
@@ -58,31 +59,73 @@ def _gemini():
             from google import genai
             from google.genai import types
 
-            key = os.getenv("GEMINI_API_KEY")
-            if not key:
-                raise PerceptionError("GEMINI_API_KEY is not set on the server")
-            _client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_MS))
+            http = types.HttpOptions(timeout=REQUEST_TIMEOUT_MS)
+            if use_vertex():
+                # Vertex AI: billed to the Google Cloud project (and its credits). Auth comes from
+                # Application Default Credentials (gcloud auth application-default login, or the
+                # Cloud Run service account), never from a key in the environment.
+                project = os.getenv("GOOGLE_CLOUD_PROJECT")
+                if not project:
+                    raise PerceptionError("GOOGLE_CLOUD_PROJECT is not set (needed for Vertex AI)")
+                _client = genai.Client(vertexai=True, project=project,
+                                       location=os.getenv("GOOGLE_CLOUD_LOCATION", "global"), http_options=http)
+            else:
+                key = os.getenv("GEMINI_API_KEY")
+                if not key:
+                    raise PerceptionError("GEMINI_API_KEY is not set on the server")
+                _client = genai.Client(api_key=key, http_options=http)
     return _client
+
+
+def use_vertex() -> bool:
+    return os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("1", "true", "yes")
+
+
+def backend_name() -> str:
+    if is_mock():
+        return "mock"
+    return f"vertex:{os.getenv('GOOGLE_CLOUD_PROJECT', '?')}/{os.getenv('GOOGLE_CLOUD_LOCATION', 'global')}" if use_vertex() else "ai-studio"
 
 
 def _retrying(call, what: str):
     """Retries transient Gemini failures (rate limit, overload, timeouts) with exponential backoff."""
     from google.genai import errors
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
+    attempts = int(os.getenv("GEMINI_MAX_ATTEMPTS", MAX_ATTEMPTS))
+    max_wait = float(os.getenv("GEMINI_RETRY_MAX_WAIT_S", "10"))  # the live app never stalls long; eval waits more
+    for attempt in range(1, attempts + 1):
+        wait = min(2 ** attempt, 8)
         try:
             return call()
         except errors.APIError as e:
-            retryable = getattr(e, "code", None) in RETRYABLE_CODES
-            log.warning("%s failed (attempt %d, code %s): %s", what, attempt, getattr(e, "code", "?"), e)
-            if not retryable or attempt == MAX_ATTEMPTS:
-                raise PerceptionError(f"The AI service refused the request ({getattr(e, 'code', 'error')})") from e
+            code = getattr(e, "code", None)
+            retryable = code in RETRYABLE_CODES
+            log.warning("%s failed (attempt %d, code %s): %s", what, attempt, code or "?", str(e)[:160])
+            daily = code == 429 and "PerDay" in str(e)
+            if code == 429:
+                # Google says how long to back off ("Please retry in 38.1s"); honour it, up to max_wait.
+                # A per-day quota can't clear in seconds, so never wait on that one.
+                m = re.search(r"retry in ([\d.]+)s", str(e))
+                hint = float(m.group(1)) + 1 if m else 30.0
+                if daily or hint > max_wait:
+                    retryable = False
+                wait = min(hint, max_wait)
+            if not retryable or attempt == attempts:
+                if daily:
+                    msg = "The AI service's daily quota is used up (free tier). Enable billing on the Gemini API project"
+                elif code == 429:
+                    msg = "The AI service's rate limit was hit. Try again in a minute"
+                else:
+                    msg = f"The AI service refused the request ({code or 'error'})"
+                raise PerceptionError(msg) from e
+            time.sleep(wait)
+            continue
         except (TimeoutError, ConnectionError, OSError) as e:
             log.warning("%s failed (attempt %d): %r", what, attempt, e)
-            if attempt == MAX_ATTEMPTS:
+            if attempt == attempts:
                 raise PerceptionError("The AI service did not answer in time") from e
         except Exception as e:  # httpx timeouts etc. surface as library-specific exceptions
-            if "timeout" not in type(e).__name__.lower() or attempt == MAX_ATTEMPTS:
+            if "timeout" not in type(e).__name__.lower() or attempt == attempts:
                 raise PerceptionError(f"The AI call failed: {type(e).__name__}") from e
             log.warning("%s timed out (attempt %d)", what, attempt)
         time.sleep(min(2 ** attempt, 8))

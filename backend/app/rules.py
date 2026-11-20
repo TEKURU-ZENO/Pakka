@@ -6,8 +6,8 @@ from typing import Optional
 
 from .milestones import Milestone
 from .prompts import PROMPT_VERSION_HASH
-from .schemas import (STAGE_ORDER, AuditStamp, Finding, MediaObservation, Severity, Stage, Verdict,
-                      VerdictReport, VoiceClaim)
+from .schemas import (STAGE_ORDER, AuditStamp, ElementType, Finding, MediaObservation, Severity, Stage,
+                      Verdict, VerdictReport, VoiceClaim)
 
 ELEMENT_MIN_CONF = 0.6
 STAGE_MIN_CONF = 0.55
@@ -15,8 +15,15 @@ DEFECT_MIN_CONF = 0.6
 POSSIBLE_DEFECT_MIN_CONF = 0.4   # below DEFECT_MIN_CONF: shown as "possible", never changes the verdict
 VOICE_MIN_CONF = 0.6             # below this, an amount or stage heard in a voice note is not trusted
 AMOUNT_TOLERANCE = 0.02  # 2% rounding slack
-RULES_VERSION = "1.2.0"  # 1.1.0: repeat-claim rule. 1.2.0: voice confidence/mismatch, ahead, possible defects
+RULES_VERSION = "1.3.0"  # 1.1.0 repeat claims · 1.2.0 voice/ahead/possible defects · 1.3.0 formwork veto
 
+
+# A member's concrete can't be seen through its own formwork (see the veto in decide()).
+FORMWORK_OF = {
+    ElementType.column_concrete: ElementType.column_formwork,
+    ElementType.plinth_beam: ElementType.beam_formwork,
+    ElementType.footing_concrete: ElementType.footing_formwork,
+}
 
 def _rank(stage: Stage) -> int:
     return STAGE_ORDER.index(stage) if stage in STAGE_ORDER else -1
@@ -56,7 +63,7 @@ def resolve_amount(owner_amount: Optional[int], voice: Optional[VoiceClaim]) -> 
 
 def decide(milestone: Milestone, observations: list[MediaObservation],
            amount_requested: Optional[int] = None,
-           model_name: str = "gemini-2.5-flash",
+           model_name: str = "gemini-3.8-flash",
            previously_verified_at: Optional[float] = None,
            voice: Optional[VoiceClaim] = None,
            voice_failed: bool = False) -> VerdictReport:
@@ -87,17 +94,37 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
                        amount, model_name=model_name)
 
     # 2. Required elements, strongest sighting of each.
+    #    Formwork veto: in a photo where a member's formwork is clearly visible, a "concrete" sighting of that
+    #    member doesn't count. The concrete is hidden behind the formwork, and the eval showed the model
+    #    reporting cast concrete for columns still in their shutters. Another photo can still prove it.
+    def vetoed(o: MediaObservation, element: ElementType) -> Optional[object]:
+        fw = FORMWORK_OF.get(element)
+        if fw is None:
+            return None
+        return next((e for e in o.elements if e.element == fw and e.confidence >= ELEMENT_MIN_CONF), None)
+
     for req in milestone.required:
-        best = None
+        best, blocked = None, None
         for i, o in usable:
             for e in o.elements:
-                if e.element == req and e.confidence >= ELEMENT_MIN_CONF and (best is None or e.confidence > best[1].confidence):
+                if e.element != req or e.confidence < ELEMENT_MIN_CONF:
+                    continue
+                fw = vetoed(o, req)
+                if fw is not None:
+                    blocked = blocked or (i, fw)
+                    continue
+                if best is None or e.confidence > best[1].confidence:
                     best = (i, e)
         if best:
             i, e = best
             count = f", {e.count} visible" if e.count else ""
             findings.append(Finding(kind="ok", media_index=i, box_2d=e.box_2d, timestamp_s=e.timestamp_s,
                                     text=f"{_label(req).capitalize()} seen{count}"))
+        elif blocked:
+            i, fw = blocked
+            findings.append(Finding(kind="missing", media_index=i, box_2d=fw.box_2d, timestamp_s=fw.timestamp_s,
+                                    text=f"{_label(req).capitalize()} not visible: still inside {_label(fw.element)}. "
+                                         f"Formwork is not proof of concrete"))
         else:
             findings.append(Finding(kind="missing", text=f"{_label(req).capitalize()} not visible in any upload"))
 
@@ -188,7 +215,7 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
 
 
 def _report(m: Milestone, verdict: Verdict, headline: str, findings, ask_next, amount,
-            prompt_version: Optional[str] = None, model_name: str = "gemini-2.5-flash",
+            prompt_version: Optional[str] = None, model_name: str = "gemini-3.8-flash",
             work_visible: bool = False) -> VerdictReport:
     p_ver = prompt_version or PROMPT_VERSION_HASH
     audit = AuditStamp(

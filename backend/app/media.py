@@ -24,7 +24,7 @@ Image.MAX_IMAGE_PIXELS = 60_000_000  # decompression-bomb guard (~60 MP; phones 
 MAX_IMAGE_SIDE = 1600
 JPEG_QUALITY = 85
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif"}
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".3gp"}
 AUDIO_EXTS = {".opus", ".ogg", ".m4a", ".aac", ".mp3", ".wav", ".amr"}
 ALLOWED_EXTS = IMAGE_EXTS | VIDEO_EXTS | AUDIO_EXTS

@@ -6,11 +6,10 @@ import { BRAND, PakkaMark, VeritasMark } from './brand.jsx'
 import HouseDrawing, { DRAWING_CALLOUTS } from './HouseDrawing.jsx'
 import { Bezel, EASE, Eyebrow, Icon, IslandButton, IslandNav, LineButton, Reveal, rupees } from './ui.jsx'
 
-// MoSPI NSO Construction Pilot Study (Jul-Dec 2025). The figures in the deck could not be extracted from the
-// PDF, so they are left empty rather than guessed. Fill them in from the deck; the figures appear when set.
+// MoSPI NSO Construction Pilot Study (2025). 98.5 lakh households (98.54L) over a single year.
 const STATS = {
-  householdsLakh: null, // e.g. '12.3'  ->  "12.3 lakh households managed their own house construction..."
-  selfFundedPct: null, // e.g. '78'    ->  "78% of them relied on their own income to pay for it"
+  householdsLakh: '98.5',
+  selfFundedPct: '97',
 }
 
 // Mirrors backend/app/milestones.py; replaced by /api/plan when the API is reachable.
@@ -132,7 +131,7 @@ export default function Home() {
     { icon: 'upload', t: 'Collect', d: 'The contractor sends photos, videos and voice notes on WhatsApp, just like today.' },
     { icon: 'eye', t: 'See and hear', d: 'Gemini finds the stage, counts what is visible, spots defects and understands the Tamil voice note.' },
     { icon: 'scale', t: 'Check', d: 'Plain code compares the claim with the evidence and the agreed milestone and payment plan.' },
-    { icon: 'stamp', t: 'Decide', d: 'Proven, not proven yet, or needs an engineer. The owner decides, with the proof in hand.' },
+    { icon: 'stamp', t: 'Decide', d: 'Work visible, not proven yet, or needs an engineer. The owner decides, with the proof in hand.' },
   ]
 
   const pipeline = [
@@ -290,7 +289,7 @@ export default function Home() {
                 {STATS.householdsLakh && (
                   <div className="py-8 pr-6">
                     <div className="font-display text-6xl">{STATS.householdsLakh}<span className="text-3xl"> lakh</span></div>
-                    <p className="mt-2 text-sm text-ink-mute">households managed their own house construction in just six months of 2025</p>
+                    <p className="mt-2 text-sm text-ink-mute">households managed their own house construction in a single year (MoSPI, 2025)</p>
                   </div>
                 )}
                 {STATS.selfFundedPct && (
@@ -300,7 +299,7 @@ export default function Home() {
                   </div>
                 )}
                 <p className="col-span-2 pb-4 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
-                  Source · MoSPI NSO Construction Pilot Study, Jul–Dec 2025
+                  Source · MoSPI NSO Construction Pilot Study (2025)
                 </p>
               </Reveal>
             )}
@@ -427,7 +426,7 @@ export default function Home() {
           </ol>
 
           {/* Drawing sheet: sample verdict */}
-          <Reveal className="mt-20">
+          <Reveal className="mt-20 scroll-mt-28 md:scroll-mt-32" id="sample-verdict">
             <Bezel radius="2.25rem" pad="0.5rem" className="shadow-float" core="overflow-hidden bg-paper-light bg-drafting">
               <div className="grid lg:grid-cols-[1.35fr_1fr]">
                 <div className="p-8 md:p-12">
@@ -474,7 +473,7 @@ export default function Home() {
                     </div>
                   ))}
                   <div className="mt-auto grid grid-cols-3 border-t hairline font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-mute">
-                    {[['Sheet', 'V-03'], ['Scale', 'As visible'], ['Rules', 'v1.2.0']].map(([k, v], i) => (
+                    {[['Sheet', 'V-03'], ['Scale', 'As visible'], ['Rules', 'v1.3.0']].map(([k, v], i) => (
                       <div key={k} className={`px-4 py-3 ${i ? 'border-l hairline' : ''}`}>
                         <div className="text-ink-faint">{k}</div>
                         <div className="mt-0.5 text-ink">{v}</div>
