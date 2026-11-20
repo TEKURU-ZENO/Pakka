@@ -169,6 +169,19 @@ function Verdict({ result, focus, setFocus }) {
               <ul className="list-disc ml-5 text-sm space-y-1">{r.ask_next.map((a) => <li key={a}>{a}</li>)}</ul>
             </div>
           )}
+          {r.audit_stamp && (
+            <div className="rounded-xl bg-stone-50 border border-stone-200 p-2.5 text-[11px] text-stone-600 font-mono space-y-1">
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <span>Model: <b>{r.audit_stamp.model}</b></span>
+                <span>Prompt: <code>{r.audit_stamp.prompt_version}</code></span>
+                <span>Rules: v{r.audit_stamp.rules_version}</span>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-stone-500">
+                <span>Thresholds: E≥{r.audit_stamp.thresholds.element_min_conf}, S≥{r.audit_stamp.thresholds.stage_min_conf}</span>
+                <span className="text-emerald-700 font-semibold font-sans">✓ Human decides payment</span>
+              </div>
+            </div>
+          )}
           <p className="text-[11px] text-stone-500 px-1">PAKKA checks visible progress only. It never certifies structural safety and never moves money.</p>
         </div>
       </div>

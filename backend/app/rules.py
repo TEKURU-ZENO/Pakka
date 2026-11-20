@@ -5,13 +5,14 @@ from typing import Optional
 
 from .milestones import Milestone
 from .prompts import PROMPT_VERSION_HASH
-from .schemas import (STAGE_ORDER, Finding, MediaObservation, Severity, Stage, Verdict,
+from .schemas import (STAGE_ORDER, AuditStamp, Finding, MediaObservation, Severity, Stage, Verdict,
                       VerdictReport)
 
 ELEMENT_MIN_CONF = 0.6
 STAGE_MIN_CONF = 0.55
 DEFECT_MIN_CONF = 0.6
 AMOUNT_TOLERANCE = 0.02  # 2% rounding slack
+RULES_VERSION = "1.0.0"
 
 
 def _rank(stage: Stage) -> int:
@@ -19,7 +20,8 @@ def _rank(stage: Stage) -> int:
 
 
 def decide(milestone: Milestone, observations: list[MediaObservation],
-           amount_requested: Optional[int] = None) -> VerdictReport:
+           amount_requested: Optional[int] = None,
+           model_name: str = "gemini-2.5-flash") -> VerdictReport:
     findings: list[Finding] = []
     ask_next: list[str] = []
     usable = [(i, o) for i, o in enumerate(observations) if o.usable]
@@ -32,7 +34,7 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
     if not usable:
         return _report(milestone, Verdict.not_proven, "No clear photo or video to check yet",
                        findings, ["A clear photo in daylight, taken close enough to see the work"] + milestone.ask_for,
-                       amount_requested)
+                       amount_requested, model_name=model_name)
 
     # 2. Required elements, strongest sighting of each.
     for req in milestone.required:
@@ -105,12 +107,34 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
     else:
         verdict, headline = Verdict.proven, f"{milestone.name} is visible in the evidence"
 
-    return _report(milestone, verdict, headline, findings, ask_next, amount_requested)
+    return _report(milestone, verdict, headline, findings, ask_next, amount_requested, model_name=model_name)
 
 
 def _report(m: Milestone, verdict: Verdict, headline: str, findings, ask_next, amount,
-            prompt_version: Optional[str] = None) -> VerdictReport:
-    return VerdictReport(milestone_id=m.id, milestone_name=m.name, verdict=verdict, headline=headline,
-                         findings=findings, ask_next=ask_next, amount_requested_inr=amount,
-                         amount_planned_inr=m.amount_inr, engineer_gate=m.engineer_gate,
-                         prompt_version=prompt_version or PROMPT_VERSION_HASH)
+            prompt_version: Optional[str] = None, model_name: str = "gemini-2.5-flash") -> VerdictReport:
+    p_ver = prompt_version or PROMPT_VERSION_HASH
+    audit = AuditStamp(
+        model=model_name,
+        prompt_version=p_ver,
+        rules_version=RULES_VERSION,
+        thresholds={
+            "element_min_conf": ELEMENT_MIN_CONF,
+            "stage_min_conf": STAGE_MIN_CONF,
+            "defect_min_conf": DEFECT_MIN_CONF,
+            "amount_tolerance": AMOUNT_TOLERANCE,
+        },
+        human_decides_payment=True,
+    )
+    return VerdictReport(
+        milestone_id=m.id,
+        milestone_name=m.name,
+        verdict=verdict,
+        headline=headline,
+        findings=findings,
+        ask_next=ask_next,
+        amount_requested_inr=amount,
+        amount_planned_inr=m.amount_inr,
+        engineer_gate=m.engineer_gate,
+        prompt_version=p_ver,
+        audit_stamp=audit,
+    )

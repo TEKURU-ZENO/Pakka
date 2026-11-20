@@ -117,6 +117,14 @@ class Finding(BaseModel):
     timestamp_s: Optional[float] = None
 
 
+class AuditStamp(BaseModel):
+    model: str
+    prompt_version: str
+    rules_version: str = "1.0.0"
+    thresholds: dict[str, float]
+    human_decides_payment: bool = True
+
+
 class VerdictReport(BaseModel):
     milestone_id: str
     milestone_name: str
@@ -128,3 +136,4 @@ class VerdictReport(BaseModel):
     amount_planned_inr: int
     engineer_gate: bool
     prompt_version: Optional[str] = None
+    audit_stamp: Optional[AuditStamp] = None

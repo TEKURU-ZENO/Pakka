@@ -72,6 +72,10 @@ def _generate(parts, schema):
     return resp.parsed if resp.parsed is not None else schema.model_validate_json(resp.text)
 
 
+def is_mock() -> bool:
+    return MOCK or os.getenv("PAKKA_MOCK") == "1"
+
+
 def guess_mime(path: Path) -> str:
     return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
@@ -79,14 +83,14 @@ def guess_mime(path: Path) -> str:
 def observe_media(path: Path, claim: str = "") -> MediaObservation:
     mime = guess_mime(path)
     kind = "video" if mime.startswith("video") else "photo"
-    if MOCK:
+    if is_mock():
         return _mock_observation(path)
     prompt = SITE_PROMPT.format(kind=kind, claim=claim or "none")
     return _generate([_media_part(path, mime), prompt], MediaObservation)
 
 
 def understand_voice(path: Path) -> VoiceClaim:
-    if MOCK:
+    if is_mock():
         return _mock_voice(path)
     return _generate([_media_part(path, guess_mime(path)), VOICE_PROMPT], VoiceClaim)
 
