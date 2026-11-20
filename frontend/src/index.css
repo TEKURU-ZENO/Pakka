@@ -46,3 +46,12 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Printable report (owner, lender or engineer): just the verdict, evidence and audit details */
+@media print {
+  .no-print, .grain::after { display: none !important; }
+  body { background: #fff !important; }
+  main { display: block !important; padding-top: 0 !important; }
+  * { box-shadow: none !important; animation: none !important; transition: none !important; }
+  .opacity-0 { opacity: 1 !important; transform: none !important; filter: none !important; }
+}

@@ -49,3 +49,9 @@ def test_prompt_separates_formwork_from_concrete():
     assert "Formwork is not concrete" in SITE_PROMPT
     for el in ("column_formwork", "beam_formwork", "footing_formwork"):
         assert el in SITE_PROMPT
+
+
+def test_slab_mesh_alone_reaches_the_engineer_gate():
+    """From above the mesh hides the deck; the eval showed both real mesh photos failing m4 for 'no shuttering'."""
+    r = decide(PLAN_BY_ID["m4"], [obs(("slab_rebar_mesh", 0.95), stage="slab_reinforcement")])
+    assert r.verdict == Verdict.needs_engineer

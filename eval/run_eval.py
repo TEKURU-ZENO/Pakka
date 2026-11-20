@@ -60,10 +60,16 @@ def run_one(row: dict, photo_dir: Path, work: Path) -> dict:
     path = work / f"{Path(row['file']).stem[:40]}{item.ext}"
     path.write_bytes(item.data)
     t0 = time.monotonic()
-    try:
-        obs = perception.observe_media(path, item.mime)
-    except perception.PerceptionError as e:
-        return {**out, "error": str(e)}
+    issue = media.quality_issue(item.data) if item.kind == "image" else None
+    if issue:  # same gate as the app: never sent to the model, costs no API call
+        from app.schemas import MediaObservation, Stage
+        obs = MediaObservation(usable=False, quality_issue=issue, stage=Stage.unknown, stage_confidence=0.0,
+                               elements=[], defects=[], summary="Not sent to the AI: failed the capture-quality check.")
+    else:
+        try:
+            obs = perception.observe_media(path, item.mime)
+        except perception.PerceptionError as e:
+            return {**out, "error": str(e)}
     report = decide(PLAN_BY_ID[row["claimed_milestone"]], [obs])
     return {**out, "latency_s": round(time.monotonic() - t0, 2), "observation": obs.model_dump(mode="json"),
             "verdict": report.verdict.value, "headline": report.headline,
@@ -77,6 +83,8 @@ def main():
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--out-dir", type=Path, default=Path(__file__).resolve().parent / "runs")
     ap.add_argument("--rpm", type=float, default=0, help="max Gemini calls per minute (free tier: 5); 0 = no limit")
+    ap.add_argument("--replay", type=Path, nargs="+", metavar="RUN.jsonl",
+                    help="re-score saved Gemini observations with the CURRENT rules and labels; no API calls")
     args = ap.parse_args()
     # The eval can afford to wait out rate limits; the live app keeps its short defaults.
     os.environ.setdefault("GEMINI_RETRY_MAX_WAIT_S", "75")
@@ -92,6 +100,40 @@ def main():
         if f.is_file() and f.name != ".gitkeep" and f.name not in labelled:
             print(f"unlabelled  {f.name} (add it to labels.csv to include it)")
 
+    if args.replay:
+        results = replay(args.replay, {r["file"]: r for r in rows})
+    else:
+        results = run_live(args, present)
+    score(results)
+    if not args.replay:
+        save(results, args.out_dir)
+
+
+def replay(paths: list[Path], labels: dict) -> list[dict]:
+    """Re-decide stored observations. Later files win when a photo appears in several runs."""
+    from app.schemas import MediaObservation
+
+    seen: dict[str, dict] = {}
+    models = set()
+    for p in paths:
+        for line in p.open(encoding="utf-8"):
+            r = json.loads(line)
+            if "observation" in r and r["file"] in labels:
+                seen[r["file"]] = r
+                models.add(f"{r.get('model')} / prompt {r.get('prompt')}")
+    print(f"\nREPLAY of {len(seen)} stored observations ({', '.join(sorted(models))}) "
+          f"under rules v{RULES_VERSION}; no API calls\n")
+    out = []
+    for file, r in seen.items():
+        lab = labels[file]
+        obs = MediaObservation.model_validate(r["observation"])
+        rep_ = decide(PLAN_BY_ID[lab["claimed_milestone"]], [obs])
+        out.append({**r, **{k: lab.get(k) for k in ("true_stage", "claimed_milestone", "expected_verdict", "notes")},
+                    "verdict": rep_.verdict.value, "headline": rep_.headline, "findings": [f.text for f in rep_.findings]})
+    return out
+
+
+def run_live(args, present: list[dict]) -> list[dict]:
     print(f"\nBackend {perception.backend_name()} · model {perception.MODEL} · prompt {PROMPT_VERSION_HASH} · "
           f"rules v{RULES_VERSION} · {len(present)} photos\n")
 
@@ -112,8 +154,10 @@ def main():
 
     workers = 1 if gap else args.workers
     with tempfile.TemporaryDirectory(prefix="pakka_eval_") as tmp, ThreadPoolExecutor(workers) as pool:
-        results = list(pool.map(paced, present))
+        return list(pool.map(paced, present))
 
+
+def score(results: list[dict]) -> None:
     stage_ok = stage_n = verdict_ok = 0
     false_claims = caught = should_pay = false_pay = 0
     retake_expected = retake_right = errors = 0
@@ -159,9 +203,12 @@ def main():
         for (t, g), c in sorted(mixups.items(), key=lambda kv: -kv[1]):
             print(f"  true {t:<19} -> saw {g:<19} x{c}")
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+
+
+def save(results: list[dict], out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    out = args.out_dir / f"{stamp}_{perception.backend_name().split(':')[0]}_{perception.MODEL}_{PROMPT_VERSION_HASH}.jsonl"
+    out = out_dir / f"{stamp}_{perception.backend_name().split(':')[0]}_{perception.MODEL}_{PROMPT_VERSION_HASH}.jsonl"
     with out.open("w", encoding="utf-8") as fh:
         for r in results:
             fh.write(json.dumps({"model": perception.MODEL, "prompt": PROMPT_VERSION_HASH, "rules": RULES_VERSION, **r}) + "\n")

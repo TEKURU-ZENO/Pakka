@@ -182,7 +182,7 @@ export function IslandNav({ links = [], right = null, mobileExtra = null, tone =
   return (
     <>
       <div id="top-sentinel" className="absolute top-0 h-px w-px" aria-hidden="true" />
-      <header className="fixed inset-x-0 top-4 z-40 flex justify-center px-4 pointer-events-none">
+      <header className="no-print fixed inset-x-0 top-4 z-40 flex justify-center px-4 pointer-events-none">
         <nav
           aria-label="Main"
           className={`pointer-events-auto flex w-full max-w-5xl items-center justify-between gap-4 rounded-full py-2 pl-5 pr-2 ring-1 transition-[background-color,box-shadow] duration-700 ${EASE} backdrop-blur-xl ${

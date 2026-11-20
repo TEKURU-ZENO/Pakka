@@ -135,11 +135,11 @@ export default function Home() {
   ]
 
   const pipeline = [
-    { k: 'Ingest', t: 'Upload', sub: 'Web upload today; WhatsApp number, Pub/Sub queue next', live: true },
+    { k: 'Ingest', t: 'Capture link', sub: 'Mestri shoots the listed shots on site; camera time and location checked', live: true },
     { k: 'See · Gemini', t: 'Photo and video', sub: 'Stage, elements, counts, defects, with a box or timestamp', live: true },
     { k: 'Hear · Gemini', t: 'Voice notes', sub: 'Tamil, Hindi, Telugu into claims, with confidence', live: true },
     { k: 'Decide · Code', t: 'Milestone rules', sub: 'Claim vs evidence vs payment plan', live: true },
-    { k: 'Owner', t: 'Verdict with proof', sub: 'Gemini Live Q&A, engineer booking, site history', live: false },
+    { k: 'Owner', t: 'Verdict with proof', sub: 'Gemini Live voice Q&A, engineer sign-off, money ledger, history', live: true },
   ]
 
   return (
@@ -536,6 +536,33 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ------------------------------------------------ EVERYONE ON THE BUILD */}
+      <section className="px-4 py-28 sm:px-8 md:py-36">
+        <div className="mx-auto max-w-7xl">
+          <SectionHead eyebrow="Everyone on the build" className="max-w-4xl">
+            One record of the truth, <em className="text-sage-600">for everyone who touches the money.</em>
+          </SectionHead>
+          <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              ['coins', 'The owner', 'Checks every request, sees money verified against the plan, asks the site by voice in Tamil or English.'],
+              ['camera', 'The mestri', 'Gets a link with the exact shots needed. Clear proof, sent from site, means faster payment and a record that wins the next job.'],
+              ['hardhat', 'The engineer', 'Steps in where it matters. Their name, registration and decision are recorded against the stage.'],
+              ['globe', 'Family abroad', 'A read-only link to follow the build from Dubai or Singapore. No calls at midnight to ask how the slab went.'],
+              ['stamp', 'Lenders and valuers', 'A printable progress report for each stage, with the evidence and audit stamp, before a loan tranche is released.'],
+              ['shield', 'Privacy by design', 'Consent before anything is sent, location stripped from photos, 180-day retention and delete-anytime.'],
+            ].map(([icon, t, d], i) => (
+              <Reveal key={t} delay={i * 80}>
+                <Bezel radius="1.75rem" className="h-full" core="h-full bg-paper-light p-7">
+                  <Icon name={icon} className="h-6 w-6 text-sage-600" />
+                  <h3 className="mt-6 font-display text-2xl">{t}</h3>
+                  <p className="mt-2 text-sm font-light leading-relaxed text-ink-mute">{d}</p>
+                </Bezel>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ------------------------------------------------ ARCHITECTURE */}
       <section className="px-4 py-28 sm:px-8 md:py-40">
         <div className="mx-auto max-w-7xl">
@@ -566,7 +593,7 @@ export default function Home() {
               ['Cloud Storage', true],
               ['Secret Manager', true],
               ['Gemini Pro for disputes', false],
-              ['Gemini Live', false],
+              ['Gemini Live', true],
               ['Pub/Sub', false],
               ['Cloud SQL', false],
               ['IAM roles', false],
@@ -610,9 +637,9 @@ export default function Home() {
               <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-ink-mute">Roadmap</span>
               <ol className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-4">
                 {[
-                  ['Now', 'Web demo: photos and a voice note in, verdict with proof out'],
-                  ['Next', 'WhatsApp intake, owner accounts, partner engineers'],
-                  ['Then', 'Gemini Live voice Q&A, lender inspection reports'],
+                  ['Now', 'Checker, mestri capture links, Gemini Live voice Q&A, engineer sign-off, family share link'],
+                  ['Next', 'A WhatsApp number for intake, owner accounts, a partner engineer network'],
+                  ['Then', 'Lender inspection reports, Gemini Pro for disputed verdicts'],
                   ['Later', 'Labelled site photos train a detection model'],
                 ].map(([w, d], i) => (
                   <li key={w}>
@@ -687,7 +714,7 @@ export default function Home() {
             See it catch a false <em className="text-ember-200">“slab done”.</em>
           </h2>
           <p className="mx-auto mt-6 max-w-md font-light text-paper/60">
-            Load the three demo scenarios, or upload your own site photos and a voice note.
+            Load the four demo scenarios, or upload your own site photos and a voice note.
           </p>
           <div className="mt-10 flex justify-center">
             <IslandButton variant="ember" onClick={go('/demo')}>

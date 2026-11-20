@@ -7,7 +7,7 @@ from typing import Optional
 from .milestones import Milestone
 from .prompts import PROMPT_VERSION_HASH
 from .schemas import (STAGE_ORDER, AuditStamp, ElementType, Finding, MediaObservation, Severity, Stage,
-                      Verdict, VerdictReport, VoiceClaim)
+                      Verdict, VerdictReport, VoiceClaim, CaptureCheck)
 
 ELEMENT_MIN_CONF = 0.6
 STAGE_MIN_CONF = 0.55
@@ -15,7 +15,7 @@ DEFECT_MIN_CONF = 0.6
 POSSIBLE_DEFECT_MIN_CONF = 0.4   # below DEFECT_MIN_CONF: shown as "possible", never changes the verdict
 VOICE_MIN_CONF = 0.6             # below this, an amount or stage heard in a voice note is not trusted
 AMOUNT_TOLERANCE = 0.02  # 2% rounding slack
-RULES_VERSION = "1.3.0"  # 1.1.0 repeat claims · 1.2.0 voice/ahead/possible defects · 1.3.0 formwork veto
+RULES_VERSION = "1.5.0"  # 1.1 repeat · 1.2 voice/ahead/defects · 1.3 formwork veto · 1.4 m4 mesh, quality gate · 1.5 capture location
 
 
 # A member's concrete can't be seen through its own formwork (see the veto in decide()).
@@ -66,7 +66,8 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
            model_name: str = "gemini-3.8-flash",
            previously_verified_at: Optional[float] = None,
            voice: Optional[VoiceClaim] = None,
-           voice_failed: bool = False) -> VerdictReport:
+           voice_failed: bool = False,
+           capture: Optional[CaptureCheck] = None) -> VerdictReport:
     """amount_requested is what the OWNER typed. A voice-note amount is only used via resolve_amount()."""
     findings: list[Finding] = []
     ask_next: list[str] = []
@@ -185,7 +186,24 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
         findings.append(Finding(kind="note", text=f"Requested {inr(amount)}, less than the {inr(milestone.amount_inr)} "
                                                    f"planned. Ask if this is a part payment"))
 
-    work_visible = not serious and not missing
+    # 5b. Where the proof came from (mestri capture link). A site you can't place can't prove anything.
+    off_site = False
+    if capture is not None:
+        if capture.distance_m is not None:
+            slack = capture.radius_m + min(capture.accuracy_m or 0.0, 500.0)
+            far = capture.distance_m
+            where = f"{far / 1000:.1f} km" if far >= 1000 else f"{far:.0f} m"
+            if far > slack:
+                off_site = True
+                findings.insert(0, Finding(kind="location", text=f"Proof was sent from about {where} away from the site pin. "
+                                                                 f"These photos may not be of your site"))
+                ask_next.insert(0, "Ask for the photos again, taken at the site with location turned on")
+            else:
+                findings.append(Finding(kind="note", text=f"Sent from the site (within {where} of the site pin)"))
+        elif capture.site_pinned:
+            findings.append(Finding(kind="note", text="Location was not shared with this proof, so the site could not be confirmed"))
+
+    work_visible = not serious and not missing and not off_site
 
     # 6. Repeat claim: this milestone was already verified once. Never let it look payable twice.
     repeat = work_visible and previously_verified_at is not None
@@ -196,27 +214,43 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
         ask_next.insert(0, "Check your payment records for this milestone before paying again")
 
     # 7. Verdict.
-    if repeat:
-        verdict, headline = Verdict.not_proven, f"{milestone.name} was already verified before. Possible repeat claim"
+    if off_site:
+        verdict, headline, key = Verdict.not_proven, "This proof was sent from away from the site", "off_site"
+    elif repeat:
+        verdict, headline, key = Verdict.not_proven, f"{milestone.name} was already verified before. Possible repeat claim", "repeat"
     elif serious:
-        verdict, headline = Verdict.needs_engineer, "A visible problem needs an engineer to look before paying"
+        verdict, headline, key = Verdict.needs_engineer, "A visible problem needs an engineer to look before paying", "defect"
         ask_next.insert(0, "Book an engineer visit for this stage")
     elif missing:
-        verdict, headline = Verdict.not_proven, f'Claim "{milestone.name}" is not supported yet'
+        verdict, headline, key = Verdict.not_proven, f'Claim "{milestone.name}" is not supported yet', "missing"
         ask_next = milestone.ask_for + ask_next
     elif milestone.engineer_gate:
-        verdict, headline = Verdict.needs_engineer, "Work is visible. This stage needs an engineer sign-off"
+        verdict, headline, key = Verdict.needs_engineer, "Work is visible. This stage needs an engineer sign-off", "gate"
         ask_next.insert(0, "Book the engineer visit before the next stage starts")
     else:
-        verdict, headline = Verdict.proven, f"{milestone.name} is visible in the evidence"
+        verdict, headline, key = Verdict.proven, f"{milestone.name} is visible in the evidence", "proven"
 
     return _report(milestone, verdict, headline, findings, ask_next, amount, model_name=model_name,
-                   work_visible=work_visible)
+                   work_visible=work_visible, headline_ta=headline_ta(key, milestone))
+
+
+def headline_ta(key: str, m: Milestone) -> str:
+    """Tamil headline for each verdict template. Needs native review before production."""
+    name = m.name_ta or m.name
+    return {
+        "unusable": "சரிபார்க்கத் தெளிவான புகைப்படமோ வீடியோவோ இன்னும் இல்லை",
+        "off_site": "இந்தப் புகைப்படங்கள் கட்டுமான இடத்திலிருந்து அனுப்பப்படவில்லை",
+        "repeat": f"{name} ஏற்கனவே சரிபார்க்கப்பட்டது. மீண்டும் கேட்கப்படும் தொகையாக இருக்கலாம்",
+        "defect": "ஒரு குறைபாடு தெரிகிறது. பணம் கொடுக்கும் முன் பொறியாளர் பார்க்க வேண்டும்",
+        "missing": f"“{name}” இன்னும் நிரூபிக்கப்படவில்லை",
+        "gate": "வேலை தெரிகிறது. இந்த நிலைக்குப் பொறியாளர் ஒப்புதல் தேவை",
+        "proven": f"{name}: வேலை புகைப்படங்களில் தெரிகிறது",
+    }[key]
 
 
 def _report(m: Milestone, verdict: Verdict, headline: str, findings, ask_next, amount,
             prompt_version: Optional[str] = None, model_name: str = "gemini-3.8-flash",
-            work_visible: bool = False) -> VerdictReport:
+            work_visible: bool = False, headline_ta: Optional[str] = None) -> VerdictReport:
     p_ver = prompt_version or PROMPT_VERSION_HASH
     audit = AuditStamp(
         model=model_name,
@@ -237,6 +271,7 @@ def _report(m: Milestone, verdict: Verdict, headline: str, findings, ask_next, a
         milestone_name=m.name,
         verdict=verdict,
         headline=headline,
+        headline_ta=headline_ta or (globals()["headline_ta"]("unusable", m) if headline.startswith("No clear photo") else None),
         findings=findings,
         ask_next=ask_next,
         amount_requested_inr=amount,

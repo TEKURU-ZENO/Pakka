@@ -22,6 +22,9 @@ npm run dev            # http://localhost:5173
 
 The site opens on a home page (problem, directive, how it works, vision, from the idea deck). The checker lives at `#/demo`.
 The two MoSPI figures for the problem section are set in `STATS` at the top of `frontend/src/Home.jsx`.
+Pages: `#/` home · `#/demo` owner checker (ledger, plan, capture links, engineer sign-off, share links, "Ask your site" voice) · `#/capture/<token>` mestri capture · `#/share/<token>` read-only family view.
+Data protection mapping (one slide): `docs/COMPLIANCE.md`.
+
 Brand: drop the original PAKKA and Veritas Labs artwork into `frontend/public/brand/` (see the README there); until then the site uses vector redraws from `frontend/src/brand.jsx`.
 
 Real Gemini: copy `.env.example`, set `GEMINI_API_KEY` (from aistudio.google.com) and run without `PAKKA_MOCK=1`.

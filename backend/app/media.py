@@ -8,9 +8,10 @@
 from __future__ import annotations
 
 import io
+from datetime import datetime
 from dataclasses import dataclass
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 try:  # iPhones send HEIC; without this Pillow can't open it.
     from pillow_heif import register_heif_opener
@@ -45,6 +46,7 @@ class Ingested:
     mime: str
     kind: str          # "image" | "video" | "audio"
     original_sha256: str = ""
+    taken_at: float | None = None   # camera time from EXIF (unix seconds), read before metadata is stripped
 
 
 def _looks_like(ext: str, head: bytes) -> bool:
@@ -93,10 +95,50 @@ def ingest(filename: str, data: bytes, original_sha256: str) -> Ingested:
     if ext in IMAGE_EXTS:
         if ext in (".heic", ".heif") and not HEIC_SUPPORTED:
             raise RejectedUpload("HEIC photos aren't supported on this server. Send as JPG")
-        return Ingested(normalise_image(data), ".jpg", "image/jpeg", "image", original_sha256)
+        return Ingested(normalise_image(data), ".jpg", "image/jpeg", "image", original_sha256, exif_taken_at(data))
 
     if not _looks_like(ext, data[:16]):
         raise RejectedUpload(f"{filename} doesn't look like a real {ext[1:]} file")
     if ext in VIDEO_EXTS:
         return Ingested(data, ext, VIDEO_MIME[ext], "video", original_sha256)
     return Ingested(data, ext, AUDIO_MIME[ext], "audio", original_sha256)
+
+
+# ---------------------------------------------------------------- capture-quality gate (deterministic, no AI)
+# Calibrated on eval/photos: genuinely dark / defocused / shaky captures scored sharpness 65-161 and brightness
+# 12.6 for the dark one; every real site photo scored sharpness >= 356 and brightness >= 95.
+# Failing this asks for a retake, which is the safe direction: it can delay a payment, never approve one.
+MIN_SHARPNESS = 200.0   # variance of the Laplacian on a 512 px greyscale copy
+MIN_BRIGHTNESS = 35.0   # mean grey level, 0-255
+_LAPLACIAN = ImageFilter.Kernel((3, 3), [0, 1, 0, 1, -4, 1, 0, 1, 0], scale=1, offset=128)
+
+
+def capture_metrics(data: bytes) -> tuple[float, float]:
+    with Image.open(io.BytesIO(data)) as img:
+        g = img.convert("L")
+        g.thumbnail((512, 512))
+        return ImageStat.Stat(g).mean[0], ImageStat.Stat(g.filter(_LAPLACIAN)).var[0]
+
+
+def quality_issue(data: bytes) -> str | None:
+    """Plain-language reason a photo can't be used as evidence, or None if it's fine."""
+    try:
+        brightness, sharpness = capture_metrics(data)
+    except Exception:
+        return None  # undecodable images were already rejected by ingest
+    if brightness < MIN_BRIGHTNESS:
+        return "Too dark to see the work. Take it again in daylight or with the flash on"
+    if sharpness < MIN_SHARPNESS:
+        return "Too blurry to see the work. Hold the phone steady and tap to focus on the work"
+    return None
+
+
+def exif_taken_at(data: bytes) -> float | None:
+    """Camera capture time (DateTimeOriginal) as unix seconds, or None. Phone local time, so treat as approximate."""
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            exif = img.getexif()
+            raw = exif.get_ifd(0x8769).get(0x9003) or exif.get(0x0132)  # DateTimeOriginal, else DateTime
+        return datetime.strptime(str(raw).strip("\x00 "), "%Y:%m:%d %H:%M:%S").timestamp() if raw else None
+    except Exception:
+        return None

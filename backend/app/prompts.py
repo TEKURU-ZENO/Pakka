@@ -19,6 +19,8 @@ Stage visual guide (use the most advanced stage clearly visible):
 
 Rules:
 1. If the media is too dark, blurry, far away, cropped, or not a construction site, set usable=false and explain in quality_issue.
+   Judge the construction work itself: if the members you would need to describe are out of focus or motion-blurred,
+   set usable=false even when other parts of the frame (foreground, sky, other buildings) are sharp.
 2. stage is the most advanced construction stage clearly visible. If you cannot tell, use "unknown".
 3. List every visible element from the allowed list. Give a count only when you can count clearly (e.g. number of columns); else null.
 4. For images, put a box_2d as [ymin, xmin, ymax, xmax] normalised to 0-1000 around every visible element and defect.

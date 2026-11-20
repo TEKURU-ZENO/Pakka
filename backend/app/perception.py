@@ -17,7 +17,13 @@ from typing import Optional
 from .prompts import SITE_PROMPT, VOICE_PROMPT
 from .schemas import MediaObservation, VoiceClaim
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")  # check AI Studio for newest Flash model
+# The demo model is the model the eval measured (eval/runs). Quote numbers only for the model you demo.
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+# If the primary model is out of quota or overloaded, these are tried in order, so a quota limit can't kill a
+# live demo. The audit stamp of every verdict records the model that actually answered.
+# Comma or semicolon separated (deploy.sh uses ";" because gcloud --set-env-vars already splits on ",").
+FALLBACK_MODELS = [m.strip() for m in re.split(r"[,;]", os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite,gemini-3-flash-preview"))
+                   if m.strip() and m.strip() != MODEL]
 MOCK = os.getenv("PAKKA_MOCK") == "1"
 INLINE_LIMIT = 18 * 1024 * 1024  # files over 18MB go through Files API
 MOCK_DIR = Path(__file__).parent / "mock"
@@ -49,7 +55,20 @@ log = logging.getLogger("pakka.perception")
 
 
 class PerceptionError(RuntimeError):
-    """Gemini could not give a usable answer. main.py turns this into a friendly 502."""
+    """Gemini could not give a usable answer. main.py turns this into a friendly 502.
+    `capacity` is True when another model might still answer (quota, overload, timeout)."""
+
+    def __init__(self, msg: str, capacity: bool = False):
+        super().__init__(msg)
+        self.capacity = capacity
+
+
+_tl = threading.local()
+
+
+def last_model() -> Optional[str]:
+    """The model that produced the most recent observation in this thread (None in mock mode)."""
+    return getattr(_tl, "model", None)
 
 
 def _gemini():
@@ -117,13 +136,13 @@ def _retrying(call, what: str):
                     msg = "The AI service's rate limit was hit. Try again in a minute"
                 else:
                     msg = f"The AI service refused the request ({code or 'error'})"
-                raise PerceptionError(msg) from e
+                raise PerceptionError(msg, capacity=code in RETRYABLE_CODES) from e
             time.sleep(wait)
             continue
         except (TimeoutError, ConnectionError, OSError) as e:
             log.warning("%s failed (attempt %d): %r", what, attempt, e)
             if attempt == attempts:
-                raise PerceptionError("The AI service did not answer in time") from e
+                raise PerceptionError("The AI service did not answer in time", capacity=True) from e
         except Exception as e:  # httpx timeouts etc. surface as library-specific exceptions
             if "timeout" not in type(e).__name__.lower() or attempt == attempts:
                 raise PerceptionError(f"The AI call failed: {type(e).__name__}") from e
@@ -164,16 +183,26 @@ def _generate(path: Path, mime: str, prompt: str, schema):
     from google.genai import types
     from pydantic import ValidationError
 
+    resp, used = None, None
     with _media_part(path, mime) as part:
-        resp = _retrying(lambda: _gemini().models.generate_content(
-            model=MODEL,
-            contents=[part, prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=schema,
-                temperature=0.1,
-            ),
-        ), "generate_content")
+        for i, model in enumerate([MODEL] + FALLBACK_MODELS):
+            try:
+                resp = _retrying(lambda: _gemini().models.generate_content(
+                    model=model,
+                    contents=[part, prompt],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=schema,
+                        temperature=0.1,
+                    ),
+                ), f"generate_content[{model}]")
+                used = model
+                break
+            except PerceptionError as e:
+                if not e.capacity or i == len(FALLBACK_MODELS):
+                    raise
+                log.warning("model %s unavailable (%s); falling back", model, e)
+    _tl.model = used
     usage = getattr(resp, "usage_metadata", None)
     if usage:
         log.info("gemini %s tokens in=%s out=%s", schema.__name__,
@@ -203,6 +232,7 @@ def observe_media(path: Path, mime: Optional[str] = None) -> MediaObservation:
     """
     mime = mime or guess_mime(path)
     kind = "video" if mime.startswith("video") else "photo"
+    _tl.model = None
     if is_mock():
         return _mock_observation(path)
     return _generate(path, mime, SITE_PROMPT.format(kind=kind), MediaObservation)

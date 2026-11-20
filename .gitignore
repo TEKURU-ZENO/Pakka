@@ -6,3 +6,6 @@ data/
 .env
 eval/photos/*
 !eval/photos/.gitkeep
+# Demo samples are copies of web photos with unknown licences: keep them local, never commit or deploy them.
+frontend/public/samples/*
+!frontend/public/samples/README.txt

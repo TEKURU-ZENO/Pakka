@@ -76,7 +76,7 @@ gcloud run deploy pakka \
   --concurrency 8 \
   --add-volume name=media,type=cloud-storage,bucket="$BUCKET" \
   --add-volume-mount volume=media,mount-path=/mnt/media \
-  --set-env-vars GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.8-flash}",PAKKA_MOCK=0,PAKKA_DEMO_RESET=1,PAKKA_MEDIA_DIR=/mnt/media \
+  --set-env-vars GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.5-flash-lite}",GEMINI_FALLBACK_MODELS="${GEMINI_FALLBACK_MODELS:-gemini-3.1-flash-lite;gemini-3-flash-preview}",PAKKA_RETENTION_DAYS=180,PAKKA_MOCK=0,PAKKA_DEMO_RESET=1,PAKKA_MEDIA_DIR=/mnt/media \
   --set-secrets GEMINI_API_KEY=gemini-api-key:"$GEMINI_KEY_VERSION",PAKKA_ACCESS_KEY=pakka-access-key:"$ACCESS_KEY_VERSION"
 
 echo "Deployment complete! Live link ready for mobile inspection demo."

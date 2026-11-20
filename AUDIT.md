@@ -37,6 +37,24 @@ Tests: 51 pass (13 new in `tests/test_p1_robustness.py`, 1 new in `tests/test_p0
 
 **Found while fixing:** every file in `eval/photos/` is a 0-byte placeholder. The eval has never run on a real photo, so there are no accuracy numbers yet.
 
+## Status (2026-11-20, evening): stakeholder review closed in code
+
+| Review item | Done | Where |
+|---|---|---|
+| Owner: money held vs verified | Ledger: verified / awaiting engineer / not yet verified against the plan | `/api/ledger`, `OwnerPanels.Ledger` |
+| Owner: editable payment plan | Amounts editable; engineer gates can be added, never removed (foundation and slab mesh are locked); every verdict stores a plan hash | `PUT /api/plan/{id}`, `milestones.current_plan` |
+| Owner: Tamil verdict text | Tamil headlines, verdict labels, milestone names and shot lists (needs native review) | `rules.headline_ta`, `milestones._TA` |
+| Mestri capture page | Camera-only shot checklist, EXIF camera time (over 48 h = recycled), GPS vs site pin (200 m), receipt-only confirmation | `#/capture/<token>`, rules v1.5.0 |
+| Engineer: what happens next | Sign-off with name, registration number, decision and note; approval marks the milestone verified. Fixed: "needs engineer" no longer counted as verified before sign-off | `POST /api/updates/{id}/signoff` |
+| NRI and relative | Read-only, revocable, 30-day share link without mestri location | `#/share/<token>` |
+| Lenders and valuers | Printable report (print stylesheet: verdict, evidence, audit stamp) | "Print or save as PDF" |
+| Legal and DPDP | Consent tick (owner) and enforced consent (mestri), 180-day retention in code, delete-a-check, `docs/COMPLIANCE.md` slide | `main.py`, `store.py` |
+| Demo model = measured model | Default `gemini-3.5-flash-lite` everywhere, with an automatic fallback chain on quota or overload; the audit stamp records the model that answered | `perception.py`, `deploy.sh` |
+| Gemini Live | "Ask your site": voice Q&A grounded only in verified records; refuses safety and payment calls | `live.py`, `AskSite.jsx` |
+
+Replay under rules v1.5.0 (gemini-3.5-flash-lite observations, 20 photos): 19/20 verdicts, 15/15 false claims caught, 0 false pays, 3/5 retakes. Tests: 88 passing.
+Open and not code: billing/quota, review of the 7 uncertain labels by an engineer, Tamil review by a native speaker, photo licences.
+
 ---
 
 ## 0. Verdict in one paragraph

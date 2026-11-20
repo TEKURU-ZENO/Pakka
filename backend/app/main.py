@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import math
 import os
+import secrets
 import re
 import threading
 import time
@@ -14,14 +16,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import media as ingest_mod
-from . import perception, rules, store
-from .milestones import DEFAULT_PLAN, PLAN_BY_ID, milestone_for_claimed_stage
-from .schemas import MediaObservation, Stage
+from . import live, perception, rules, store
+from .milestones import DEFAULT_PLAN, LOCKED_GATES, claimed_stage_milestone, current_by_id, current_plan, plan_version
+from .schemas import CaptureCheck, MediaObservation, Stage
 
 MAX_FILES = 10
 MAX_FILE_SIZE = 50 * 1024 * 1024        # 50 MB per file
@@ -67,6 +69,8 @@ def _media_url(name: str) -> str:
 def _sign_body(body: dict) -> dict:
     """Stored bodies hold plain /media/<name> URLs; sign them on the way out."""
     body = dict(body)
+    if body.get("id"):
+        body["signoffs"] = store.list_signoffs(update_id=body["id"])
     for key in ("media", "audio"):
         body[key] = [{**m, "url": _media_url(m["url"].split("/")[-1].split("?")[0])} for m in body.get(key) or []]
     return body
@@ -81,11 +85,18 @@ def reset_rate_limits():
         _rate_hits.clear()
 
 
-def rate_limit(request: Request):
+def _client_ip(headers, client) -> str:
     # Cloud Run's front end APPENDS the real client IP, so the rightmost entry is the trustworthy one.
     # The leftmost entries are whatever the client sent and would let a script rotate fake IPs.
-    fwd = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",") if h.strip()]
-    ip = fwd[-1] if fwd else (request.client.host if request.client else "unknown")
+    fwd = [h.strip() for h in headers.get("x-forwarded-for", "").split(",") if h.strip()]
+    return fwd[-1] if fwd else (client.host if client else "unknown")
+
+
+def rate_limit(request: Request):
+    _count_hit(_client_ip(request.headers, request.client))
+
+
+def _count_hit(ip: str):
     now = time.monotonic()
     with _rate_lock:
         hits = _rate_hits[ip]
@@ -123,7 +134,48 @@ def demo_reset():
 
 @app.get("/api/plan")
 def plan():
-    return [m.model_dump() for m in DEFAULT_PLAN]
+    return [{**m.model_dump(), "gate_locked": m.id in LOCKED_GATES} for m in current_plan()]
+
+
+@app.put("/api/plan/{milestone_id}", dependencies=[Depends(require_access)])
+def edit_plan(milestone_id: str, amount_inr: Optional[int] = Body(None, ge=1000, le=100_000_000),
+              engineer_gate: Optional[bool] = Body(None)):
+    """Owner edits the agreed amounts, and may add (never remove) engineer gates."""
+    if milestone_id not in current_by_id():
+        raise HTTPException(404, "Unknown milestone")
+    if engineer_gate is False and milestone_id in LOCKED_GATES:
+        raise HTTPException(400, "This stage always needs an engineer sign-off. The gate can't be removed")
+    store.set_plan_override(milestone_id, amount_inr, engineer_gate)
+    return plan()
+
+
+def _ledger() -> dict:
+    """Money view of the plan. Purely factual: PAKKA reports what is verified; the owner decides what to pay."""
+    verified = store.verified_milestones()
+    updates = store.list_updates()
+    latest = {}
+    for u in updates:  # newest first
+        latest.setdefault(u["report"]["milestone_id"], u)
+    rows, totals = [], {"verified": 0, "awaiting_engineer": 0, "not_verified": 0}
+    for m in current_plan():
+        u = latest.get(m.id)
+        if m.id in verified:
+            status = "verified"
+        elif u and u["report"]["verdict"] == "needs_engineer":
+            status = "awaiting_engineer"
+        else:
+            status = "not_verified"
+        totals[status] += m.amount_inr
+        rows.append({"milestone_id": m.id, "name": m.name, "amount_inr": m.amount_inr, "engineer_gate": m.engineer_gate,
+                     "status": status, "verified_at": verified.get(m.id),
+                     "last_check": {"id": u["id"], "verdict": u["report"]["verdict"], "created": u["created"]} if u else None})
+    return {"milestones": rows, "totals": totals, "plan_total": sum(r["amount_inr"] for r in rows),
+            "plan_version": plan_version()}
+
+
+@app.get("/api/ledger", dependencies=[Depends(require_access)])
+def ledger():
+    return _ledger()
 
 
 @app.get("/api/updates", dependencies=[Depends(require_access)])
@@ -137,6 +189,37 @@ _MEDIA_HEADERS = {
     "Content-Security-Policy": "default-src 'none'; img-src 'self'; media-src 'self'; sandbox",
     "Cache-Control": "private, max-age=3600",
 }
+
+
+@app.get("/api/brief", dependencies=[Depends(require_access)])
+def brief():
+    """Exactly what the voice assistant is allowed to know: built from verified records, in plain code."""
+    return {"brief": live.site_brief(), "live_model": live.LIVE_MODEL}
+
+
+@app.post("/api/ask", dependencies=[Depends(require_access), Depends(rate_limit)])
+def ask(question: str = Body(..., embed=True, max_length=500)):
+    """Text fallback for 'Ask your site' when voice isn't available."""
+    return live.ask_text(question)
+
+
+@app.websocket("/api/live")
+async def live_socket(ws: WebSocket, key: str = Query("")):
+    """Owner voice Q&A over Gemini Live. Browsers can't set headers on a WebSocket, so the key is a query param."""
+    expected = _access_key()
+    if expected and not hmac.compare_digest(key.encode(), expected.encode()):
+        await ws.close(code=4401)
+        return
+    try:
+        _count_hit(_client_ip(ws.headers, ws.client))
+    except HTTPException:
+        await ws.close(code=4429)
+        return
+    await ws.accept()
+    try:
+        await live.bridge(ws)
+    except WebSocketDisconnect:
+        pass
 
 
 @app.get("/media/{name}")
@@ -173,7 +256,19 @@ def create_update(
     milestone_id: Optional[str] = Form(None),
     amount_inr: Optional[int] = Form(None),
     claim_text: Optional[str] = Form(None),
+    consent: Optional[bool] = Form(None),
 ):
+    c = {"given": True, "by": "owner", "at": time.time(), "text": CONSENT_VERSION} if consent else None
+    return _sign_body(run_check(files, milestone_id, amount_inr, claim_text, consent=c))
+
+
+MAX_PHOTO_AGE_S = 48 * 3600  # through a capture link, a camera photo older than this is a recycled photo
+
+
+def run_check(files, milestone_id, amount_inr, claim_text, capture: Optional[dict] = None,
+              consent: Optional[dict] = None) -> dict:
+    """The one check pipeline, shared by owner uploads and mestri capture links.
+    `capture` = {"token", "received_at", "lat", "lng", "accuracy_m", "link"} for capture-link submissions."""
     # 1. Upload hygiene
     if len(files) > MAX_FILES:
         raise HTTPException(400, f"Maximum {MAX_FILES} files allowed per update")
@@ -218,9 +313,9 @@ def create_update(
             voice_failed = True
 
     # 4. Resolve milestone (the amount is resolved by the rules engine)
-    milestone = PLAN_BY_ID.get(milestone_id or "")
+    milestone = current_by_id().get(milestone_id or "")
     if milestone is None and voice and voice.confidence >= rules.VOICE_MIN_CONF:
-        milestone = milestone_for_claimed_stage(voice.claimed_stage)
+        milestone = claimed_stage_milestone(voice.claimed_stage)
     if milestone is None:
         msg = ("The voice note could not be understood. Pick the milestone being claimed" if voice_failed
                else "Pick the milestone being claimed, or add a voice note that names it")
@@ -240,6 +335,21 @@ def create_update(
     for idx, (path, mime, item) in enumerate(visual):
         if item.kind != "image":
             continue
+        # Capture links promise "taken now": a camera photo from days ago is recycled evidence.
+        if capture and item.taken_at and capture["received_at"] - item.taken_at > MAX_PHOTO_AGE_S:
+            days = (capture["received_at"] - item.taken_at) / 86400
+            precomputed[idx] = MediaObservation(
+                usable=False, quality_issue=f"This photo was taken about {days:.0f} days ago. Send a photo taken today",
+                stage=Stage.unknown, stage_confidence=0.0, elements=[], defects=[],
+                summary="Not sent to the AI: the camera time shows an old photo.")
+            continue
+        # Capture-quality gate in plain code: a dark or blurred photo is never sent to the model to guess from.
+        issue = ingest_mod.quality_issue(item.data)
+        if issue:
+            precomputed[idx] = MediaObservation(usable=False, quality_issue=issue, stage=Stage.unknown,
+                                                stage_confidence=0.0, elements=[], defects=[],
+                                                summary="Not sent to the AI: the photo failed the capture-quality check.")
+            continue
         dhash = store.compute_dhash(path)
         prev = store.find_duplicate_image(item.original_sha256, dhash)
         if prev is not None:
@@ -255,9 +365,13 @@ def create_update(
 
     # 6. Observe media in parallel. Blind: the model is never told what the contractor claims.
     #    One failed photo becomes "can't be used"; only if every photo fails is the whole check a 502.
+    _models_used: list[str] = []
+
     def _observe(i: int):
         try:
-            return i, perception.observe_media(visual[i][0], visual[i][1])
+            obs = perception.observe_media(visual[i][0], visual[i][1])
+            _models_used.append(perception.last_model())
+            return i, obs
         except perception.PerceptionError as e:
             log.warning("observation %d failed: %s", i, e)
             return i, MediaObservation(usable=False, quality_issue="The AI couldn't analyse it. Try again in a minute",
@@ -274,9 +388,24 @@ def create_update(
     observations = [precomputed[i] for i in range(len(visual))]
 
     # 7. Rules engine decides (including whether this milestone was already verified before)
+    check = None
+    if capture:
+        link = capture["link"]
+        pinned = link.get("site_lat") is not None and link.get("site_lng") is not None
+        dist = (_haversine_m(link["site_lat"], link["site_lng"], capture["lat"], capture["lng"])
+                if pinned and capture.get("lat") is not None and capture.get("lng") is not None else None)
+        check = CaptureCheck(distance_m=dist, accuracy_m=capture.get("accuracy_m"), radius_m=link.get("radius_m") or 200.0,
+                             site_pinned=pinned)
     report = rules.decide(milestone, observations, amount_inr, model_name=perception.MODEL,
                           previously_verified_at=store.milestone_verified_at(milestone.id),
-                          voice=voice, voice_failed=voice_failed)
+                          voice=voice, voice_failed=voice_failed, capture=check)
+    if report.audit_stamp:
+        report.audit_stamp.plan_version = plan_version()
+        used = sorted({m for m in _models_used if m})
+        if used:
+            report.audit_stamp.model = " + ".join(used)
+        elif perception.is_mock():
+            report.audit_stamp.model = "mock (canned answers, no AI call)"
 
     for sha, dhash, fname in fingerprints:
         store.store_image_fingerprint(sha, dhash, fname)
@@ -285,18 +414,210 @@ def create_update(
     body = {
         "milestone": milestone.model_dump(),
         "claim": claim,
-        "media": [{"url": f"/media/{p.name}", "mime": m, "sha256": i.original_sha256} for p, m, i in visual],
+        "media": [{"url": f"/media/{p.name}", "mime": m, "sha256": i.original_sha256, "taken_at": i.taken_at}
+                  for p, m, i in visual],
         "audio": [{"url": f"/media/{p.name}", "mime": m} for p, m in audio],
         "voice": voice.model_dump() if voice else None,
         "observations": [o.model_dump() for o in observations],
         "report": report.model_dump(),
         "audit_stamp": report.audit_stamp.model_dump() if report.audit_stamp else None,
         "prompt_version": report.prompt_version,
+        "source": "capture_link" if capture else "owner_upload",
     }
+    if capture:
+        body["capture"] = {"token": capture["token"], "received_at": capture["received_at"],
+                           "lat": capture.get("lat"), "lng": capture.get("lng"), "accuracy_m": capture.get("accuracy_m"),
+                           "distance_m": check.distance_m if check else None}
+    body["consent"] = consent or {"given": None, "by": "owner"}
     body["id"] = store.save_update(body)
-    if report.work_visible and report.verdict.value != "not_proven":
+    if report.work_visible and report.verdict.value == "proven":
         store.mark_milestone_verified(milestone.id, body["id"])
-    return _sign_body(body)
+    _maybe_purge()
+    return body
+
+
+def _haversine_m(lat1, lng1, lat2, lng2) -> float:
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+# ---------------------------------------------------------------- mestri capture links
+CAPTURE_TTL_S = 7 * 24 * 3600
+
+
+def _valid_coord(lat, lng) -> bool:
+    return lat is not None and lng is not None and -90 <= lat <= 90 and -180 <= lng <= 180
+
+
+@app.post("/api/capture-links", dependencies=[Depends(require_access)])
+def create_capture_link(
+    milestone_id: str = Body(...),
+    amount_inr: Optional[int] = Body(None),
+    site_lat: Optional[float] = Body(None),
+    site_lng: Optional[float] = Body(None),
+    radius_m: float = Body(200.0, ge=50, le=2000),
+):
+    """Owner creates a one-milestone link to send the mestri (e.g. on WhatsApp). The token is the only credential."""
+    if milestone_id not in current_by_id():
+        raise HTTPException(400, "Unknown milestone")
+    if (site_lat is None) != (site_lng is None) or (site_lat is not None and not _valid_coord(site_lat, site_lng)):
+        raise HTTPException(400, "Site pin must be a valid latitude and longitude")
+    token = secrets.token_urlsafe(16)
+    link = store.create_capture_link(token, milestone_id, amount_inr if (amount_inr or 0) > 0 else None,
+                                     site_lat, site_lng, radius_m, CAPTURE_TTL_S)
+    return {**_public_link(link), "token": token, "path": f"/#/capture/{token}"}
+
+
+@app.get("/api/capture-links", dependencies=[Depends(require_access)])
+def list_capture_links():
+    return [{**_public_link(l), "token": l["token"], "path": f"/#/capture/{l['token']}"} for l in store.list_capture_links()]
+
+
+def _public_link(link: dict) -> dict:
+    m = current_by_id()[link["milestone_id"]]
+    return {"milestone_id": m.id, "milestone_name": m.name, "milestone_name_ta": m.name_ta, "shots": m.ask_for,
+            "shots_ta": m.ask_for_ta,
+            "amount_inr": link["amount_inr"] or m.amount_inr, "wants_location": link["site_lat"] is not None,
+            "expires": link["expires"], "submissions": link["submissions"], "last_update_id": link["last_update_id"]}
+
+
+def _open_link(token: str) -> dict:
+    link = store.get_capture_link(token) if re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token or "") else None
+    if not link:
+        raise HTTPException(404, "This link is not valid. Ask the owner to send a new one")
+    if time.time() > link["expires"]:
+        raise HTTPException(410, "This link has expired. Ask the owner to send a new one")
+    return link
+
+
+@app.get("/api/capture/{token}")
+def capture_info(token: str):
+    """What the mestri sees: the milestone and the shots needed. Nothing else about the owner or the site."""
+    link = _open_link(token)
+    info = _public_link(link)
+    info.pop("last_update_id", None)
+    return info
+
+
+@app.post("/api/capture/{token}", dependencies=[Depends(rate_limit)])
+def capture_submit(
+    token: str,
+    files: list[UploadFile] = File(...),
+    lat: Optional[float] = Form(None),
+    lng: Optional[float] = Form(None),
+    accuracy_m: Optional[float] = Form(None),
+    consent: bool = Form(False),
+):
+    link = _open_link(token)
+    if not consent:
+        raise HTTPException(400, "Please confirm you agree to send these photos (and location, if shared) to the owner")
+    if not _valid_coord(lat, lng):
+        lat = lng = accuracy_m = None
+    received = time.time()
+    body = run_check(files, link["milestone_id"], link["amount_inr"], None,
+                     capture={"token": token, "received_at": received, "lat": lat, "lng": lng,
+                              "accuracy_m": accuracy_m, "link": link},
+                     consent={"given": True, "by": "mestri", "at": received, "text": CONSENT_VERSION})
+    store.record_capture_submission(token, body["id"])
+    # The mestri gets a receipt, not the verdict: the owner reviews and decides.
+    return {"ok": True, "received_at": received, "photos": len(body["media"]),
+            "message": "Proof sent. The owner will see the result."}
+
+
+# ---------------------------------------------------------------- engineer sign-off
+@app.post("/api/updates/{uid}/signoff", dependencies=[Depends(require_access)])
+def signoff(uid: str, engineer_name: str = Body(..., min_length=2, max_length=80),
+            registration_no: str = Body("", max_length=40), decision: str = Body(..., pattern="^(approved|rework)$"),
+            note: str = Body("", max_length=500)):
+    """A licensed engineer's decision on a 'needs an engineer' check. Approval marks the milestone verified.
+    PAKKA records the engineer's call; it never makes it."""
+    body = store.get_update(uid)
+    if not body:
+        raise HTTPException(404, "Check not found")
+    if body["report"]["verdict"] != "needs_engineer":
+        raise HTTPException(400, "Only checks marked 'needs an engineer' take an engineer sign-off")
+    if body["report"].get("findings") and any(f["kind"] == "location" for f in body["report"]["findings"]):
+        raise HTTPException(400, "This proof was sent from away from the site; ask for new photos first")
+    store.add_signoff(uid, body["report"]["milestone_id"], engineer_name.strip(), registration_no.strip(), decision,
+                      note.strip())
+    if decision == "approved":
+        store.mark_milestone_verified(body["report"]["milestone_id"], uid)
+    return _sign_body(store.get_update(uid))
+
+
+# ---------------------------------------------------------------- erasure and retention (DPDP Act 2023)
+RETENTION_DAYS = float(os.getenv("PAKKA_RETENTION_DAYS", "180"))
+CONSENT_VERSION = "consent-v1"
+_last_purge = [0.0]
+
+
+def _maybe_purge():
+    if time.time() - _last_purge[0] > 3600:
+        _last_purge[0] = time.time()
+        n = store.purge_older_than(RETENTION_DAYS)
+        if n:
+            log.info("retention: removed %d checks older than %d days", n, RETENTION_DAYS)
+
+
+@app.on_event("startup")
+def _startup_purge():
+    _maybe_purge()
+
+
+@app.delete("/api/updates/{uid}", dependencies=[Depends(require_access)])
+def delete_check(uid: str):
+    """Erase a check with its photos and voice notes (right to erasure)."""
+    if not store.delete_update(uid):
+        raise HTTPException(404, "Check not found")
+    return {"ok": True}
+
+
+@app.get("/api/privacy")
+def privacy():
+    return {"retention_days": RETENTION_DAYS, "consent_version": CONSENT_VERSION,
+            "processor": "Google Gemini API" + (" (Vertex AI)" if perception.use_vertex() else ""),
+            "region": "asia-south1 (Mumbai) when deployed with deploy.sh"}
+
+
+# ---------------------------------------------------------------- read-only share link (relative / NRI owner)
+SHARE_TTL_S = 30 * 24 * 3600
+
+
+@app.post("/api/share-links", dependencies=[Depends(require_access)])
+def create_share_link(label: str = Body("Family", embed=True, max_length=60)):
+    token = secrets.token_urlsafe(16)
+    store.create_share_link(token, label.strip() or "Family", SHARE_TTL_S)
+    return {"token": token, "path": f"/#/share/{token}", "label": label, "expires": time.time() + SHARE_TTL_S}
+
+
+@app.get("/api/share-links", dependencies=[Depends(require_access)])
+def list_share_links():
+    return [{**l, "path": f"/#/share/{l['token']}"} for l in store.list_share_links()]
+
+
+@app.delete("/api/share-links/{token}", dependencies=[Depends(require_access)])
+def revoke_share_link(token: str):
+    store.revoke_share_link(token)
+    return {"ok": True}
+
+
+@app.get("/api/share/{token}")
+def shared_view(token: str):
+    """Read-only view for family: the plan, what is verified, and each check's verdict and photos.
+    No mestri location, no capture tokens, no editing."""
+    link = store.get_share_link(token) if re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token or "") else None
+    if not link or time.time() > link["expires"]:
+        raise HTTPException(404, "This link is not valid or has been revoked")
+    checks = []
+    for u in store.list_updates()[:30]:
+        b = _sign_body(u)
+        b.pop("capture", None)
+        b.pop("consent", None)
+        checks.append({k: b.get(k) for k in ("id", "created", "media", "report", "signoffs", "source")})
+    return {"label": link["label"], "ledger": _ledger(), "checks": checks}
 
 
 # Serve the built React app (copied to ./static by Dockerfile).

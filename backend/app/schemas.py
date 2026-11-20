@@ -191,12 +191,22 @@ class Finding(BaseModel):
     timestamp_s: Optional[float] = None
 
 
+class CaptureCheck(BaseModel):
+    """How the evidence arrived, when it came through a mestri capture link. Measured in plain code."""
+    via_link: bool = True
+    distance_m: Optional[float] = None    # from the owner's site pin, if both are known
+    accuracy_m: Optional[float] = None    # the phone's own GPS accuracy estimate
+    radius_m: float = 200.0
+    site_pinned: bool = False
+
+
 class AuditStamp(BaseModel):
     model: str
     prompt_version: str
     rules_version: str  # set from rules.RULES_VERSION, the single source
     thresholds: dict[str, float]
     human_decides_payment: bool = True
+    plan_version: Optional[str] = None
 
 
 class VerdictReport(BaseModel):
@@ -204,6 +214,7 @@ class VerdictReport(BaseModel):
     milestone_name: str
     verdict: Verdict
     headline: str
+    headline_ta: Optional[str] = None   # Tamil headline (fixed templates)
     findings: list[Finding]
     ask_next: list[str]
     amount_requested_inr: Optional[int]

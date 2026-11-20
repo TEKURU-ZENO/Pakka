@@ -1,6 +1,9 @@
 // The verification desk (#/demo). Logic: upload -> /api/updates -> verdict with boxes on the photo.
 // Presentation follows the PAKKA design language (see ui.jsx): paper, ink, sage, ember; drawing sheets.
 import { useEffect, useRef, useState } from 'react'
+import { api, VERDICT_TA } from './api.js'
+import AskSite from './AskSite.jsx'
+import { EngineerSignoff, Ledger, PlanEditor, ShareLinks } from './OwnerPanels.jsx'
 import { Bezel, EASE, Eyebrow, Icon, IslandButton, IslandNav, Reveal, rupees } from './ui.jsx'
 
 const VERDICT = {
@@ -30,34 +33,7 @@ const KIND = {
   repeat: { label: 'Repeat', dot: 'bg-clay-500' },
   claim: { label: 'Claim', dot: 'bg-ember-500' },
   note: { label: 'Note', dot: 'bg-sage-300' },
-}
-
-// Access key for the deployed demo (server sets PAKKA_ACCESS_KEY). Asked once, remembered per browser.
-const KEY_STORE = 'pakka_access_key'
-function readKey() {
-  try { return localStorage.getItem(KEY_STORE) || '' } catch { return '' }
-}
-function writeKey(k) {
-  try { localStorage.setItem(KEY_STORE, k) } catch { /* private mode: ask again next time */ }
-}
-
-async function api(url, options = {}, retried = false) {
-  const headers = { ...(options.headers || {}) }
-  const key = readKey()
-  if (key) headers['X-Pakka-Key'] = key
-  const r = await fetch(url, { ...options, headers })
-  if (r.status === 401 && !retried) {
-    const entered = window.prompt('Enter the PAKKA access key')
-    if (entered) {
-      writeKey(entered.trim())
-      return api(url, options, true)
-    }
-  }
-  const text = await r.text()
-  let body = null
-  try { body = text ? JSON.parse(text) : null } catch { /* not JSON, e.g. a proxy error page */ }
-  if (!r.ok) throw new Error((body && body.detail) || `Check failed (${r.status}). Try again in a moment.`)
-  return body
+  location: { label: 'Location', dot: 'bg-clay-500' },
 }
 
 function createSampleFile(name, color, label) {
@@ -69,9 +45,10 @@ function createSampleFile(name, color, label) {
     ctx.fillStyle = color
     ctx.fillRect(0, 0, 400, 300)
     // Texture + randomness: each demo run is a new photo, like a real site photo would be.
-    for (let i = 0; i < 6000; i++) {
-      const v = Math.floor(Math.random() * 90)
-      ctx.fillStyle = `rgba(${v},${v},${v},0.35)`
+    // Strong enough texture to pass the server's capture-quality gate (sharpness/brightness), like a real photo.
+    for (let i = 0; i < 9000; i++) {
+      const v = 20 + Math.floor(Math.random() * 216)
+      ctx.fillStyle = `rgba(${v},${v},${v},0.45)`
       ctx.fillRect(Math.random() * 400, Math.random() * 300, 3, 3)
     }
     ctx.fillStyle = '#ffffff'
@@ -103,13 +80,15 @@ function createSampleAudio(name) {
 const SAMPLES = {
   catch: { photo: 'demo_a_site_shuttering.jpg', voice: 'demo_a_mestri_voice.opus' },
   happy: { photo: 'demo_b_site_slab.jpg' },
-  defect: { photo: 'demo_c_column_honeycomb.jpg' },
+  engineer: { photo: 'demo_c_site_rebar.jpg' },
+  formwork: { photo: 'demo_d_column_formwork.jpg' },
 }
 
 const SCENARIOS = [
   { id: 'catch', code: 'A', name: 'The catch', d: '“Slab done” on shuttering photos' },
   { id: 'happy', code: 'B', name: 'Happy path', d: 'Cast slab, claim holds' },
-  { id: 'defect', code: 'C', name: 'Safety net', d: 'Honeycombed column' },
+  { id: 'engineer', code: 'C', name: 'Engineer gate', d: 'Slab rebar mesh: needs an engineer before the pour' },
+  { id: 'formwork', code: 'D', name: 'Formwork check', d: 'Columns still in shutters are not proof of concrete' },
 ]
 
 async function fetchSample(name) {
@@ -143,6 +122,9 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [history, setHistory] = useState([])
   const [scenario, setScenario] = useState('')
+  const [askOpen, setAskOpen] = useState(false)
+  const [consent, setConsent] = useState(false)
+  const [refresh, setRefresh] = useState(0)
   const verdictRef = useRef(null)
 
   useEffect(() => {
@@ -193,6 +175,7 @@ export default function App() {
     files.forEach((f) => fd.append('files', f))
     if (milestoneId) fd.append('milestone_id', milestoneId)
     if (amount) fd.append('amount_inr', amount)
+    if (consent) fd.append('consent', 'true')
     try {
       setResult(await api('/api/updates', { method: 'POST', body: fd }))
       loadHistory()
@@ -216,17 +199,22 @@ export default function App() {
     }
     if (type === 'catch') {
       const img = await photo('#4a5568', 'SHUTTERING IN PLACE')
-      const voice = (await fetchSample(s.voice)) || createSampleAudio('demo_a_mestri_voice.wav')
-      setFiles([img, voice])
+      // A real recording if one is in samples/; the silent placeholder only in mock mode (the live AI would
+      // transcribe silence). Without a voice note the amount still comes from the field below.
+      const voice = (await fetchSample(s.voice)) || (mock ? createSampleAudio('demo_a_mestri_voice.wav') : null)
+      setFiles(voice ? [img, voice] : [img])
       setMilestoneId('m5')
     } else if (type === 'happy') {
       setFiles([await photo('#2d3748', 'SLAB SURFACE POURED')])
       setMilestoneId('m5')
-    } else if (type === 'defect') {
-      setFiles([await photo('#742a2a', 'HONEYCOMB DEFECT')])
+    } else if (type === 'engineer') {
+      setFiles([await photo('#742a2a', 'SLAB REBAR MESH')])
+      setMilestoneId('m4')
+    } else if (type === 'formwork') {
+      setFiles([await photo('#3b4a5a', 'COLUMN FORMWORK')])
       setMilestoneId('m3')
     }
-    setAmount('250000')
+    setAmount(type === 'engineer' ? '150000' : '250000')
     setNotice(
       synthetic && !mock
         ? 'This demo uses a drawn sample image. The live AI will (correctly) say it is not a site photo. ' +
@@ -242,11 +230,26 @@ export default function App() {
 
   return (
     <div className="min-h-[100dvh] bg-paper text-ink">
+      <AskSite open={askOpen} onClose={() => setAskOpen(false)} />
+      {/* Floating voice button (phones, and anywhere the nav pill hides its controls) */}
+      <button
+        onClick={() => setAskOpen(true)}
+        aria-label="Ask your site"
+        className="no-print fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-ink text-ember-200 shadow-lift ring-1 ring-white/10 transition-transform duration-500 ease-lux active:scale-95 lg:hidden"
+      >
+        <Icon name="mic" className="h-6 w-6" />
+      </button>
       <IslandNav
         tone="light"
         links={[{ label: 'Overview', href: '#/' }]}
         right={
           <>
+            <button
+              onClick={() => setAskOpen(true)}
+              className={`flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-xs text-paper-light transition-colors duration-500 ${EASE} hover:bg-ink-soft`}
+            >
+              <Icon name="mic" className="h-3.5 w-3.5" /> Ask your site
+            </button>
             <span className="flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-mute ring-1 ring-ink/10">
               <span className={`h-1.5 w-1.5 rounded-full ${mock ? 'bg-ember-500' : 'bg-moss-500'}`} aria-hidden="true" />
               {mock ? 'Mock mode' : model || 'Live'}
@@ -291,7 +294,7 @@ export default function App() {
 
       <main className="mx-auto grid max-w-7xl items-start gap-6 px-4 pb-28 sm:px-8 lg:grid-cols-[400px_1fr]">
         {/* ------------------------------------------------ intake */}
-        <Reveal className="lg:sticky lg:top-28">
+        <Reveal className="no-print lg:sticky lg:top-28">
           <Bezel radius="2rem" className="shadow-float" core="overflow-hidden bg-paper-light">
             <div className="bg-[#1A1714] px-6 pb-6 pt-5 text-paper-light">
               <div className="flex items-center justify-between">
@@ -306,7 +309,7 @@ export default function App() {
                 </div>
               </div>
               <div className="mt-5 font-mono text-[10px] uppercase tracking-[0.18em] text-paper/45">Demo scenarios</div>
-              <div className="mt-2 grid grid-cols-3 gap-2">
+              <div className="mt-2 grid grid-cols-2 gap-2">
                 {SCENARIOS.map((s) => (
                   <button
                     key={s.id}
@@ -383,7 +386,15 @@ export default function App() {
                 </div>
               </label>
 
-              <IslandButton variant="ink" onClick={submit} disabled={!files.length || busy} icon="scale" className="w-full justify-between">
+              <label className="flex items-start gap-3 rounded-2xl bg-sage-50 p-3 text-xs leading-relaxed text-ink-soft ring-1 ring-sage-200">
+                <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5" />
+                <span>
+                  I have the right to share these photos and voice notes. They are checked by PAKKA using Google Gemini,
+                  kept for 180 days, and I can delete them any time.
+                </span>
+              </label>
+
+              <IslandButton variant="ink" onClick={submit} disabled={!files.length || busy || !consent} icon="scale" className="w-full justify-between">
                 {busy ? 'Reading the site…' : 'Check before paying'}
               </IslandButton>
 
@@ -403,6 +414,11 @@ export default function App() {
             <Empty
               plan={plan}
               history={history}
+              refresh={refresh}
+              onPlanSaved={() => {
+                api('/api/plan').then(setPlan)
+                setRefresh((n) => n + 1)
+              }}
               open={(h) => {
                 setResult(h)
                 setFocus(null)
@@ -410,7 +426,20 @@ export default function App() {
             />
           )}
           {busy && <Scanning />}
-          {result && <Verdict key={result.id} result={result} focus={focus} setFocus={setFocus} />}
+          {result && (
+            <Verdict
+              key={result.id}
+              result={result}
+              focus={focus}
+              setFocus={setFocus}
+              onChanged={(updated) => {
+                if (updated) setResult(updated)
+                else setResult(null)
+                loadHistory()
+                setRefresh((n) => n + 1)
+              }}
+            />
+          )}
         </section>
       </main>
     </div>
@@ -428,10 +457,143 @@ function Scanning() {
   )
 }
 
-function Empty({ plan, history, open }) {
+function RequestProof({ plan, history, open }) {
+  const [milestoneId, setMilestoneId] = useState('m5')
+  const [pin, setPin] = useState('') // "lat, lng"
+  const [pinState, setPinState] = useState('')
+  const [links, setLinks] = useState([])
+  const [made, setMade] = useState(null)
+  const [err, setErr] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  const load = () => api('/api/capture-links').then((l) => setLinks(l || [])).catch(() => {})
+  useEffect(() => { load() }, [history.length])
+
+  function useHere() {
+    if (!navigator.geolocation) return setPinState('Location not available on this device')
+    setPinState('Finding…')
+    navigator.geolocation.getCurrentPosition(
+      (q) => {
+        setPin(`${q.coords.latitude.toFixed(6)}, ${q.coords.longitude.toFixed(6)}`)
+        setPinState(`Pinned here (±${Math.round(q.coords.accuracy)} m)`)
+      },
+      () => setPinState('Location permission denied'),
+      { enableHighAccuracy: true, timeout: 15000 },
+    )
+  }
+
+  async function create() {
+    setErr('')
+    setCopied(false)
+    const body = { milestone_id: milestoneId }
+    if (pin.trim()) {
+      const [lat, lng] = pin.split(',').map((x) => parseFloat(x))
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return setErr('Site pin should look like 13.0827, 80.2707')
+      Object.assign(body, { site_lat: lat, site_lng: lng })
+    }
+    try {
+      const l = await api('/api/capture-links', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      setMade({ ...l, url: `${location.origin}${l.path}` })
+      load()
+    } catch (e) {
+      setErr(e.message)
+    }
+  }
+
+  const waText = made
+    ? encodeURIComponent(`Please send proof for "${made.milestone_name}" using this link. Take the photos at the site with your phone camera: ${made.url}`)
+    : ''
+
+  return (
+    <Reveal>
+      <Bezel radius="2rem" core="bg-paper-light p-7 md:p-10">
+        <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-ink-mute">Mestri capture link</span>
+        <h2 className="mt-3 font-display text-4xl leading-none">Request proof</h2>
+        <p className="mt-3 max-w-lg text-sm font-light leading-relaxed text-ink-mute">
+          Send the mestri a link for one milestone. It lists the exact shots needed, opens the phone camera (no old
+          gallery photos), checks the camera time and, if you pin the site, where the photos were taken.
+        </p>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className={fieldLabel}>Milestone</span>
+            <div className={fieldShell}>
+              <select value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)} className={`${fieldCore} appearance-none`}>
+                {plan.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+          </label>
+          <label className="block">
+            <span className={fieldLabel}>Site pin (optional)</span>
+            <div className={`${fieldShell} flex items-center gap-1`}>
+              <input value={pin} onChange={(e) => setPin(e.target.value)} placeholder="13.0827, 80.2707" className={`${fieldCore} font-mono`} />
+              <button type="button" onClick={useHere} title="Use this device's location" className="shrink-0 rounded-[0.8rem] bg-white px-3 py-3 text-ink-soft ring-1 ring-ink/[0.06]">
+                <Icon name="globe" className="h-4 w-4" />
+              </button>
+            </div>
+            {pinState && <span className="mt-1 block text-xs text-ink-mute">{pinState}</span>}
+          </label>
+        </div>
+        <div className="mt-6">
+          <IslandButton variant="ink" onClick={create} icon="arrow">Create link</IslandButton>
+        </div>
+        {err && <p className="mt-4 rounded-2xl bg-clay-50 p-3 text-xs text-clay-700">{err}</p>}
+
+        {made && (
+          <div className="mt-6 rounded-2xl bg-sage-50 p-4 ring-1 ring-sage-200">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-ink-mute">Link for {made.milestone_name} · valid 7 days</div>
+            <code className="mt-2 block break-all font-mono text-xs text-ink">{made.url}</code>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => navigator.clipboard?.writeText(made.url).then(() => setCopied(true))}
+                className="rounded-full bg-white px-4 py-2 text-xs ring-1 ring-ink/10"
+              >
+                {copied ? 'Copied ✓' : 'Copy link'}
+              </button>
+              <a href={`https://wa.me/?text=${waText}`} target="_blank" rel="noreferrer" className="rounded-full bg-[#1A1714] px-4 py-2 text-xs text-paper-light">
+                Send on WhatsApp
+              </a>
+              <a href={made.path} target="_blank" rel="noreferrer" className="rounded-full px-4 py-2 text-xs text-ink-soft ring-1 ring-ink/10">
+                Preview as mestri
+              </a>
+            </div>
+          </div>
+        )}
+
+        {links.length > 0 && (
+          <ul className="mt-8">
+            {links.slice(0, 6).map((l) => {
+              const result = history.find((h) => h.id === l.last_update_id)
+              return (
+                <li key={l.token} className="flex items-center justify-between gap-3 border-t hairline py-3 text-sm">
+                  <span className="min-w-0">
+                    <span className="block truncate font-display text-lg">{l.milestone_name}</span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint">
+                      {l.wants_location ? 'site pinned · ' : ''}{l.submissions ? `${l.submissions} sent` : 'waiting for mestri'}
+                    </span>
+                  </span>
+                  {result ? (
+                    <button onClick={() => open(result)} className="shrink-0 rounded-full bg-ink px-3 py-1.5 text-xs text-paper-light">See result</button>
+                  ) : (
+                    <span className="shrink-0 text-xs text-ink-faint">{new Date(l.expires * 1000) > new Date() ? 'open' : 'expired'}</span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </Bezel>
+    </Reveal>
+  )
+}
+
+function Empty({ plan, history, open, refresh, onPlanSaved }) {
   const total = plan.reduce((s, m) => s + m.amount_inr, 0)
   return (
     <div className="space-y-6">
+      <Ledger refreshKey={`${refresh}-${history.length}`} history={history} onOpen={open} />
+      <RequestProof plan={plan} history={history} open={open} />
       <Reveal>
         <Bezel radius="2rem" core="bg-paper-light p-7 md:p-10">
           <div className="flex flex-wrap items-end justify-between gap-4">
@@ -444,7 +606,8 @@ function Empty({ plan, history, open }) {
               <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-ink-mute">{plan.length} milestones · RCC frame</div>
             </div>
           </div>
-          <ol className="mt-8">
+          <div className="mt-5"><PlanEditor plan={plan} onSaved={onPlanSaved} /></div>
+          <ol className="mt-6">
             {plan.map((m, i) => (
               <li key={m.id} className="flex items-center justify-between gap-4 border-t hairline py-4">
                 <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -486,6 +649,11 @@ function Empty({ plan, history, open }) {
                           {new Date(h.created * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                         </span>
                         <span className="mt-1 block truncate font-display text-xl">{h.report.milestone_name}</span>
+                        {h.source === 'capture_link' && (
+                          <span className="mt-1 inline-flex items-center gap-1 font-mono text-[9.5px] uppercase tracking-[0.14em] text-sage-600">
+                            <Icon name="camera" className="h-3 w-3" /> via mestri link
+                          </span>
+                        )}
                       </span>
                       <span className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.16em] ${v.chip}`}>
                         <Icon name={v.icon} className="h-3 w-3" strokeWidth={1.75} /> {v.label}
@@ -498,11 +666,16 @@ function Empty({ plan, history, open }) {
           </Bezel>
         </Reveal>
       )}
+      <ShareLinks />
     </div>
   )
 }
 
-function Verdict({ result, focus, setFocus }) {
+function Verdict({ result, focus, setFocus, onChanged }) {
+  const [ta, setTa] = useState(false)
+  const approved = (result.signoffs || []).some((x) => x.decision === 'approved')
+  // once a licensed engineer has approved, "book the engineer" items are done
+  const askNext = (result.report.ask_next || []).filter((a) => !(approved && /engineer/i.test(a)))
   const r = result.report
   const v = VERDICT[r.verdict] || VERDICT.not_proven
   const [shownIndex, setShownIndex] = useState(0)
@@ -533,6 +706,9 @@ function Verdict({ result, focus, setFocus }) {
 
   return (
     <div className="space-y-6 scroll-mt-28 md:scroll-mt-32">
+      <button onClick={() => onChanged(null)} className="no-print inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs text-ink-soft ring-1 ring-ink/10 hover:bg-white">
+        <Icon name="arrowLeft" className="h-3.5 w-3.5" /> Site overview
+      </button>
       {/* Verdict sheet */}
       <Reveal className="scroll-mt-28 md:scroll-mt-32">
         <Bezel radius="2rem" className="shadow-float" core={`relative overflow-hidden ${v.sheet} p-7 md:p-10`}>
@@ -540,11 +716,28 @@ function Verdict({ result, focus, setFocus }) {
             <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-mute">
               {r.milestone_name} · {rupees(r.amount_requested_inr ?? r.amount_planned_inr)}
             </span>
-            <span className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.2em] ${v.chip}`}>
-              <Icon name={v.icon} className="h-3.5 w-3.5" strokeWidth={1.75} /> {v.label}
+            <span className="flex items-center gap-2">
+              <button onClick={() => setTa((t) => !t)} className="no-print rounded-full bg-white/70 px-3 py-1.5 text-[11px] ring-1 ring-ink/10" aria-pressed={ta}>
+                {ta ? 'English' : 'தமிழ்'}
+              </button>
+              <span className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.2em] ${v.chip}`}>
+                <Icon name={v.icon} className="h-3.5 w-3.5" strokeWidth={1.75} /> {ta ? VERDICT_TA[r.verdict] : v.label}
+              </span>
             </span>
           </div>
-          <h2 className={`mt-6 font-display text-[clamp(2rem,3.8vw,3.25rem)] leading-[1.02] ${v.ink}`}>{r.headline}</h2>
+          <h2 className={`mt-6 font-display text-[clamp(2rem,3.8vw,3.25rem)] leading-[1.02] ${v.ink}`} lang={ta ? 'ta' : 'en'}>
+            {(ta && r.headline_ta) || r.headline}
+          </h2>
+          {ta && result.milestone?.ask_for_ta?.length > 0 && r.verdict === 'not_proven' && (
+            <ul className="mt-4 space-y-1 text-sm text-ink-soft" lang="ta">
+              {result.milestone.ask_for_ta.map((a) => <li key={a}>· {a}</li>)}
+            </ul>
+          )}
+          {result.source === 'capture_link' && (
+            <p className="mt-3 inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-sage-600">
+              <Icon name="camera" className="h-3 w-3" /> Sent by the mestri through a capture link
+            </p>
+          )}
           {result.voice && (
             <div className="mt-8 grid gap-1 border-l-2 border-ember-400 pl-5">
               <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
@@ -653,12 +846,14 @@ function Verdict({ result, focus, setFocus }) {
             </Bezel>
           </Reveal>
 
-          {r.ask_next.length > 0 && (
+          <EngineerSignoff result={result} onSigned={(u) => onChanged(u)} />
+
+          {askNext.length > 0 && (
             <Reveal delay={140}>
               <Bezel dark radius="2rem" className="bg-ink" core="bg-[#1A1714] p-6 text-paper-light">
                 <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-paper/50">Ask the contractor next</span>
                 <ol className="mt-4 space-y-3">
-                  {r.ask_next.map((a, idx) => (
+                  {askNext.map((a, idx) => (
                     <li key={idx} className="flex gap-4 text-sm font-light leading-relaxed text-paper/80">
                       <span className="font-mono text-[11px] text-ember-300">{String(idx + 1).padStart(2, '0')}</span>
                       {a}
@@ -690,6 +885,21 @@ function Verdict({ result, focus, setFocus }) {
             </Reveal>
           )}
 
+          <div className="no-print flex flex-wrap gap-2 px-1">
+            <button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs text-ink-soft ring-1 ring-ink/10 hover:bg-white">
+              <Icon name="copy" className="h-3.5 w-3.5" /> Print or save as PDF
+            </button>
+            <button
+              onClick={async () => {
+                if (!window.confirm('Delete this check with its photos and voice notes? This cannot be undone.')) return
+                await api(`/api/updates/${result.id}`, { method: 'DELETE' })
+                onChanged(null)
+              }}
+              className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs text-clay-700 ring-1 ring-clay-500/20 hover:bg-clay-50"
+            >
+              <Icon name="x" className="h-3.5 w-3.5" /> Delete this check
+            </button>
+          </div>
           <p className="px-2 text-xs font-light leading-relaxed text-ink-faint">
             PAKKA checks visible progress only. It never certifies structural safety and never moves money.
           </p>

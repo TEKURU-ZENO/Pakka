@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 import app.perception as p
-from app import main, store
+from app import main, media, store
 from app.milestones import PLAN_BY_ID
 from app.prompts import SITE_PROMPT
 from app.rules import decide
@@ -40,7 +40,8 @@ def _up(data, name):
 
 
 # ---- W1: flat images must not collide with each other
-def test_different_flat_images_are_not_duplicates():
+def test_different_flat_images_are_not_duplicates(monkeypatch):
+    monkeypatch.setattr(media, "quality_issue", lambda data: None)  # flat on purpose: testing dedupe only
     r1 = main.create_update(files=[_up(_flat_canvas("#2d3748", "SLAB"), "site_slab.jpg")], milestone_id="m5")
     r2 = main.create_update(files=[_up(_flat_canvas("#742a2a", "HONEYCOMB"), "column_honeycomb.jpg")],
                             milestone_id="m3")
@@ -49,7 +50,8 @@ def test_different_flat_images_are_not_duplicates():
     assert store.compute_dhash(store.MEDIA_DIR / r1["media"][0]["url"].split("/")[-1]) is None
 
 
-def test_exact_flat_resend_is_still_caught():
+def test_exact_flat_resend_is_still_caught(monkeypatch):
+    monkeypatch.setattr(media, "quality_issue", lambda data: None)  # flat on purpose: testing dedupe only
     img = _flat_canvas("#2d3748", "SLAB")
     main.create_update(files=[_up(img, "site_slab.jpg")], milestone_id="m5")
     r = main.create_update(files=[_up(img, "site_slab.jpg")], milestone_id="m6")

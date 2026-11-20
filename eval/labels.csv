@@ -3,7 +3,7 @@ Roof-Slab-Cutting.webp,slab_cast,m5,proven,DRAFT: interior cast floor slab being
 Suspended-slab-formwork.jpg,slab_shuttering,m5,not_proven,DRAFT: plywood formwork deck with starter bars; the false 'slab done' case
 blurred-background-construction-site-houses-under-development-defocused-busy-multiple-residential-actively-410801102.webp,unusable,m5,not_proven,DRAFT: deliberately defocused stock shot; should ask for a retake
 blurred-background-construction-site-houses-under-development-defocused-busy-multiple-residential-actively-410801197.webp,unusable,m5,not_proven,DRAFT: deliberately defocused stock shot; should ask for a retake
-constuction-site.avif,plinth,m2,proven,DRAFT (unsure): ground-level base with starter bars; could be read as columns
+constuction-site.avif,plinth,m2,proven,DISPUTED: labelled plinth; two Gemini models both read slab reinforcement. Needs a human (engineer) to decide; not changed to match the model
 images (1).jpg,excavation,m1,not_proven,DRAFT (unsure): cleared/dug site with a pit; footings not cast
 images (2).jpg,slab_reinforcement,m4,needs_engineer,DRAFT: slab rebar with filler blocks and conduits on shuttering; engineer gate
 images (3).jpg,slab_cast,m5,proven,DRAFT (unsure): concrete being poured on the slab; pour in progress
@@ -16,3 +16,6 @@ images_2.jpg,slab_reinforcement,m4,needs_engineer,DRAFT: slab rebar mesh being t
 images_3.jpg,plinth,m2,not_proven,DRAFT (unsure): narrow formwork along the base of a wall; beam not cast yet
 images_4.jpg,columns,m3,not_proven,DRAFT: blue steel column formwork; column concrete not visible yet
 images_5.jpg,columns,m3,not_proven,DRAFT: column/wall rebar cages with red formwork; not cast
+synthetic_dark_site.jpg,unusable,m5,not_proven,SYNTHETIC: Suspended-slab-formwork darkened to 10% brightness; must ask for a retake
+synthetic_defocused_site.jpg,unusable,m5,not_proven,SYNTHETIC: Suspended-slab-formwork with heavy defocus blur; must ask for a retake
+synthetic_shaky_site.jpg,unusable,m5,not_proven,SYNTHETIC: Suspended-slab-formwork with camera-shake smear; must ask for a retake

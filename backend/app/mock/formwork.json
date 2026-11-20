@@ -1,0 +1,5 @@
+{"usable": true, "quality_issue": null, "stage": "columns", "stage_confidence": 0.9,
+ "elements": [
+   {"element": "column_formwork", "count": 3, "confidence": 0.93, "box_2d": [120, 160, 900, 820], "timestamp_s": null},
+   {"element": "column_rebar", "count": 3, "confidence": 0.88, "box_2d": [60, 200, 300, 780], "timestamp_s": null}],
+ "defects": [], "summary": "Steel column formwork standing on the slab with rebar above; no column concrete is visible yet."}
