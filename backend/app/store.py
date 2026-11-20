@@ -46,6 +46,12 @@ _db.execute("CREATE TABLE IF NOT EXISTS plan_overrides (milestone_id TEXT PRIMAR
 _db.execute("CREATE TABLE IF NOT EXISTS signoffs (id TEXT PRIMARY KEY, created REAL, update_id TEXT, milestone_id TEXT, "
             "engineer_name TEXT, registration_no TEXT, decision TEXT, note TEXT)")
 _db.execute("CREATE TABLE IF NOT EXISTS share_links (token TEXT PRIMARY KEY, created REAL, expires REAL, label TEXT)")
+_db.execute("CREATE TABLE IF NOT EXISTS engineer_links (token TEXT PRIMARY KEY, created REAL, expires REAL, update_id TEXT, "
+            "used REAL)")
+try:  # who entered the sign-off: the engineer through their own link, or the owner on their behalf
+    _db.execute("ALTER TABLE signoffs ADD COLUMN channel TEXT")
+except sqlite3.OperationalError:
+    pass
 _db.commit()
 
 
@@ -171,7 +177,7 @@ def reset_all():
     """Wipes records and fingerprints. Used by tests and by the mock-mode demo reset."""
     with _lock:
         for table in ("updates", "image_hashes", "image_sha256", "milestone_verified", "capture_links",
-                      "plan_overrides", "signoffs", "share_links"):
+                      "plan_overrides", "signoffs", "share_links", "engineer_links"):
             _db.execute(f"DELETE FROM {table}")
         _db.commit()
 
@@ -194,15 +200,16 @@ def set_plan_override(milestone_id: str, amount_inr: Optional[int], engineer_gat
 
 
 # ---------------------------------------------------------------- engineer sign-offs
-_SIGNOFF_COLS = ("id", "created", "update_id", "milestone_id", "engineer_name", "registration_no", "decision", "note")
+_SIGNOFF_COLS = ("id", "created", "update_id", "milestone_id", "engineer_name", "registration_no", "decision", "note",
+                 "channel")
 
 
 def add_signoff(update_id: str, milestone_id: str, engineer_name: str, registration_no: str, decision: str,
-                note: str) -> dict:
+                note: str, channel: str = "owner_entered") -> dict:
     sid = uuid.uuid4().hex[:10]
     with _lock:
-        _db.execute(f"INSERT INTO signoffs ({', '.join(_SIGNOFF_COLS)}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (sid, time.time(), update_id, milestone_id, engineer_name, registration_no, decision, note))
+        _db.execute(f"INSERT INTO signoffs ({', '.join(_SIGNOFF_COLS)}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (sid, time.time(), update_id, milestone_id, engineer_name, registration_no, decision, note, channel))
         _db.commit()
     return list_signoffs(update_id=update_id)[0]
 
@@ -293,3 +300,26 @@ def purge_older_than(days: float) -> int:
         _db.execute("DELETE FROM share_links WHERE expires < ?", (time.time(),))
         _db.commit()
     return len(ids)
+
+
+
+# ---------------------------------------------------------------- engineer links
+def create_engineer_link(token: str, update_id: str, ttl_s: float):
+    now = time.time()
+    with _lock:
+        _db.execute("INSERT INTO engineer_links (token, created, expires, update_id, used) VALUES (?, ?, ?, ?, NULL)",
+                    (token, now, now + ttl_s, update_id))
+        _db.commit()
+
+
+def get_engineer_link(token: str) -> Optional[dict]:
+    with _lock:
+        row = _db.execute("SELECT token, created, expires, update_id, used FROM engineer_links WHERE token = ?",
+                          (token,)).fetchone()
+    return dict(zip(("token", "created", "expires", "update_id", "used"), row)) if row else None
+
+
+def use_engineer_link(token: str):
+    with _lock:
+        _db.execute("UPDATE engineer_links SET used = ? WHERE token = ?", (time.time(), token))
+        _db.commit()

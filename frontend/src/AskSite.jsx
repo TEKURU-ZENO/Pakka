@@ -1,6 +1,7 @@
 // "Ask your site": owner voice Q&A over Gemini Live, answered only from verified PAKKA records.
 // Browser <-> /api/live (our server) <-> Gemini Live. Mic: PCM16 16 kHz up. Reply: PCM16 24 kHz down.
 import { useEffect, useRef, useState } from 'react'
+import { api } from './api.js'
 import { EASE, Icon } from './ui.jsx'
 
 const KEY_STORE = 'pakka_access_key'
@@ -78,11 +79,21 @@ export default function AskSite({ open, onClose }) {
   }
 
   // ------------------------------------------------ socket
-  function connect() {
+  async function connect() {
     setStatus('connecting')
     setNote('')
+    // A 60-second, single-use ticket from an authenticated request, so the access key never appears in a URL.
+    let ticket = ''
+    try {
+      ticket = (await api('/api/live-ticket', { method: 'POST' })).ticket
+    } catch {
+      setNote('Could not start voice. Type your question instead.')
+      setMode('text')
+      setStatus('error')
+      return
+    }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const sock = new WebSocket(`${proto}://${location.host}/api/live?key=${encodeURIComponent(readKey())}`)
+    const sock = new WebSocket(`${proto}://${location.host}/api/live?ticket=${encodeURIComponent(ticket)}`)
     ws.current = sock
     sock.onmessage = (ev) => {
       const m = JSON.parse(ev.data)

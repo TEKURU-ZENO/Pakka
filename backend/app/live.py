@@ -68,7 +68,7 @@ def site_brief(updates: Optional[list[dict]] = None) -> str:
         if r.get("ask_next"):
             lines.append("  ask the contractor next: " + "; ".join(r["ask_next"][:3]))
         for s in store.list_signoffs(update_id=u.get("id")) if u.get("id") else []:
-            lines.append(f"  engineer sign-off: {s['decision']} by {s['engineer_name']} "
+            lines.append(f"  engineer sign-off ({'signed by the engineer' if s.get('channel') == 'engineer_link' else 'entered by the owner'}): {s['decision']} by {s['engineer_name']} "
                          f"{('(' + s['registration_no'] + ')') if s['registration_no'] else ''}: {s['note'][:120]}")
         voice = u.get("voice")
         if voice and voice.get("translation_en"):
@@ -106,7 +106,12 @@ def offline_answer(question: str, updates: Optional[list[dict]] = None) -> str:
     when = datetime.fromtimestamp(updates[0].get("created", 0)).strftime("%d %b")
     parts = [f"The latest check, on {when}, was for {r['milestone_name']}: {VERDICT_WORDS.get(r['verdict'], r['verdict'])}."]
     parts.append(r["headline"].rstrip(".") + ".")
-    if r.get("ask_next"):
+    signed = [x for x in store.list_signoffs(update_id=updates[0].get("id"))] if updates[0].get("id") else []
+    approved = next((x for x in signed if x["decision"] == "approved"), None)
+    if approved:
+        who = "the engineer, through their own link" if approved.get("channel") == "engineer_link" else "the owner on the engineer's behalf"
+        parts.append(f"Engineer {approved['engineer_name']} approved it (recorded by {who}).")
+    elif r.get("ask_next"):
         parts.append("Next, ask the contractor for: " + r["ask_next"][0].rstrip(".") + ".")
     return " ".join(parts)
 

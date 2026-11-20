@@ -187,8 +187,8 @@ export function IslandNav({ links = [], right = null, mobileExtra = null, tone =
           aria-label="Main"
           className={`pointer-events-auto flex w-full max-w-5xl items-center justify-between gap-4 rounded-full py-2 pl-5 pr-2 ring-1 transition-[background-color,box-shadow] duration-700 ${EASE} backdrop-blur-xl ${
             dark
-              ? `text-paper-light ring-white/10 ${scrolled ? 'bg-[#1A1714]/85 shadow-lift' : 'bg-[#1A1714]/40'}`
-              : `text-ink ${scrolled ? 'bg-paper-light/80 ring-ink/[0.07] shadow-lift' : 'bg-paper-light/40 ring-ink/[0.05]'}`
+              ? `text-paper-light ring-white/10 ${scrolled ? 'bg-[#1A1714]/95 shadow-lift' : 'bg-[#1A1714]/40'}`
+              : `text-ink ${scrolled ? 'bg-paper-light/95 ring-ink/[0.07] shadow-lift' : 'bg-paper-light/40 ring-ink/[0.05]'}`
           }`}
         >
           <a href="#/" aria-label="PAKKA home">

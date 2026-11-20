@@ -52,7 +52,8 @@ Tests: 51 pass (13 new in `tests/test_p1_robustness.py`, 1 new in `tests/test_p0
 | Demo model = measured model | Default `gemini-3.5-flash-lite` everywhere, with an automatic fallback chain on quota or overload; the audit stamp records the model that answered | `perception.py`, `deploy.sh` |
 | Gemini Live | "Ask your site": voice Q&A grounded only in verified records; refuses safety and payment calls | `live.py`, `AskSite.jsx` |
 
-Replay under rules v1.5.0 (gemini-3.5-flash-lite observations, 20 photos): 19/20 verdicts, 15/15 false claims caught, 0 false pays, 3/5 retakes. Tests: 88 passing.
+Late-night review fixes: the engineer gets their own link and sign-offs record who entered them ("signed via engineer link" or "entered by the owner"); the voice socket uses a 60-second single-use ticket instead of the access key in the URL; the scrolled nav is opaque.
+Replay under rules v1.5.0 (gemini-3.5-flash-lite observations, 20 photos): 19/20 verdicts, 15/15 false claims caught, 0 false pays, 3/5 retakes. Tests: 91 passing.
 Open and not code: billing/quota, review of the 7 uncertain labels by an engineer, Tamil review by a native speaker, photo licences.
 
 ---

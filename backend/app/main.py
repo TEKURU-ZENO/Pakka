@@ -203,11 +203,35 @@ def ask(question: str = Body(..., embed=True, max_length=500)):
     return live.ask_text(question)
 
 
+# Browsers can't set headers on a WebSocket. Instead of putting the access key in the URL (and so in request
+# logs), the app first asks for a ticket over a normal authenticated request, then opens the socket with it.
+# Tickets live 60 s and work once.
+LIVE_TICKET_TTL_S = 60
+_tickets: dict[str, float] = {}
+_tickets_lock = threading.Lock()
+
+
+@app.post("/api/live-ticket", dependencies=[Depends(require_access)])
+def live_ticket():
+    t = secrets.token_urlsafe(24)
+    now = time.time()
+    with _tickets_lock:
+        for k in [k for k, exp in _tickets.items() if exp < now]:
+            _tickets.pop(k, None)
+        _tickets[t] = now + LIVE_TICKET_TTL_S
+    return {"ticket": t, "expires_in": LIVE_TICKET_TTL_S}
+
+
+def _redeem_ticket(t: str) -> bool:
+    with _tickets_lock:
+        exp = _tickets.pop(t or "", None)
+    return exp is not None and exp >= time.time()
+
+
 @app.websocket("/api/live")
-async def live_socket(ws: WebSocket, key: str = Query("")):
-    """Owner voice Q&A over Gemini Live. Browsers can't set headers on a WebSocket, so the key is a query param."""
-    expected = _access_key()
-    if expected and not hmac.compare_digest(key.encode(), expected.encode()):
+async def live_socket(ws: WebSocket, ticket: str = Query("")):
+    """Owner voice Q&A over Gemini Live. Authorised by a single-use ticket from /api/live-ticket."""
+    if _access_key() and not _redeem_ticket(ticket):
         await ws.close(code=4401)
         return
     try:
@@ -535,17 +559,71 @@ def signoff(uid: str, engineer_name: str = Body(..., min_length=2, max_length=80
     """A licensed engineer's decision on a 'needs an engineer' check. Approval marks the milestone verified.
     PAKKA records the engineer's call; it never makes it."""
     body = store.get_update(uid)
+    _signoff_allowed(body)
+    _record_signoff(body, uid, engineer_name, registration_no, decision, note, channel="owner_entered")
+    return _sign_body(store.get_update(uid))
+
+
+def _signoff_allowed(body: Optional[dict]):
     if not body:
         raise HTTPException(404, "Check not found")
     if body["report"]["verdict"] != "needs_engineer":
         raise HTTPException(400, "Only checks marked 'needs an engineer' take an engineer sign-off")
-    if body["report"].get("findings") and any(f["kind"] == "location" for f in body["report"]["findings"]):
+    if any(f["kind"] == "location" for f in body["report"].get("findings") or []):
         raise HTTPException(400, "This proof was sent from away from the site; ask for new photos first")
+
+
+def _record_signoff(body, uid, engineer_name, registration_no, decision, note, channel):
     store.add_signoff(uid, body["report"]["milestone_id"], engineer_name.strip(), registration_no.strip(), decision,
-                      note.strip())
+                      note.strip(), channel=channel)
     if decision == "approved":
         store.mark_milestone_verified(body["report"]["milestone_id"], uid)
-    return _sign_body(store.get_update(uid))
+
+
+# ---------------------------------------------------------------- engineer link: the engineer signs, not the owner
+ENGINEER_TTL_S = 14 * 24 * 3600
+
+
+@app.post("/api/updates/{uid}/engineer-link", dependencies=[Depends(require_access)])
+def create_engineer_link(uid: str):
+    """A link the owner sends to the engineer. Sign-offs made through it are recorded as 'signed via engineer link'."""
+    _signoff_allowed(store.get_update(uid))
+    token = secrets.token_urlsafe(16)
+    store.create_engineer_link(token, uid, ENGINEER_TTL_S)
+    return {"token": token, "path": f"/#/engineer/{token}", "expires": time.time() + ENGINEER_TTL_S}
+
+
+def _open_engineer_link(token: str) -> tuple[dict, dict]:
+    link = store.get_engineer_link(token) if re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token or "") else None
+    if not link or time.time() > link["expires"]:
+        raise HTTPException(404, "This link is not valid or has expired. Ask the owner for a new one")
+    body = store.get_update(link["update_id"])
+    if not body:
+        raise HTTPException(404, "This check has been deleted")
+    return link, body
+
+
+@app.get("/api/engineer/{token}")
+def engineer_view(token: str):
+    """What the engineer sees: the evidence and PAKKA's findings for one check. No voice notes, consent or location."""
+    link, body = _open_engineer_link(token)
+    b = _sign_body(body)
+    return {"id": b["id"], "created": b["created"], "milestone": b["milestone"], "media": b["media"],
+            "observations": b["observations"], "report": b["report"], "signoffs": b["signoffs"],
+            "used": link["used"]}
+
+
+@app.post("/api/engineer/{token}/signoff", dependencies=[Depends(rate_limit)])
+def engineer_signoff(token: str, engineer_name: str = Body(..., min_length=2, max_length=80),
+                     registration_no: str = Body(..., min_length=3, max_length=40),
+                     decision: str = Body(..., pattern="^(approved|rework)$"), note: str = Body("", max_length=500)):
+    link, body = _open_engineer_link(token)
+    if link["used"]:
+        raise HTTPException(409, "A decision was already recorded with this link")
+    _signoff_allowed(body)
+    _record_signoff(body, body["id"], engineer_name, registration_no, decision, note, channel="engineer_link")
+    store.use_engineer_link(token)
+    return {"ok": True, "message": "Decision recorded. The owner will see it with your name and registration number."}
 
 
 # ---------------------------------------------------------------- erasure and retention (DPDP Act 2023)

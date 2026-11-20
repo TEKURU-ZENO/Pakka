@@ -145,7 +145,20 @@ export function EngineerSignoff({ result, onSigned }) {
   const [form, setForm] = useState({ engineer_name: '', registration_no: '', decision: 'approved', note: '' })
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [link, setLink] = useState(null)
+  const [copied, setCopied] = useState(false)
+  const [manual, setManual] = useState(false)
   const signoffs = result.signoffs || []
+
+  async function makeLink() {
+    setErr('')
+    try {
+      const l = await api(`/api/updates/${result.id}/engineer-link`, { method: 'POST' })
+      setLink({ ...l, url: `${location.origin}${l.path}` })
+    } catch (x) {
+      setErr(x.message)
+    }
+  }
   if (r.verdict !== 'needs_engineer' && !signoffs.length) return null
 
   async function submit(e) {
@@ -174,6 +187,11 @@ export function EngineerSignoff({ result, onSigned }) {
               {s.decision === 'approved' ? 'Approved' : 'Rework needed'}
             </span>
           </div>
+          <div className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${
+            s.channel === 'engineer_link' ? 'bg-moss-50 text-moss-700' : 'bg-ochre-50 text-ochre-700'
+          }`}>
+            {s.channel === 'engineer_link' ? '✓ Signed by the engineer via their own link' : 'Entered by the owner on the engineer’s behalf'}
+          </div>
           <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint">
             {s.registration_no && `Reg. ${s.registration_no} · `}
             {new Date(s.created * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -182,8 +200,38 @@ export function EngineerSignoff({ result, onSigned }) {
         </div>
       ))}
       {r.verdict === 'needs_engineer' && !signoffs.some((s) => s.decision === 'approved') && (
+        <div className="mt-4">
+          <p className="text-sm font-light text-ink-soft">
+            Send the engineer their own link. They see the evidence and record the decision with their registration
+            number, so the sign-off is theirs, not yours.
+          </p>
+          {!link ? (
+            <div className="mt-3"><IslandButton variant="ink" onClick={makeLink} icon="arrow">Send to engineer</IslandButton></div>
+          ) : (
+            <div className="mt-3 rounded-2xl bg-white p-4 ring-1 ring-clay-500/15">
+              <code className="block break-all font-mono text-xs">{link.url}</code>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button onClick={() => navigator.clipboard?.writeText(link.url).then(() => setCopied(true))} className="rounded-full bg-paper-light px-4 py-2 text-xs ring-1 ring-ink/10">
+                  {copied ? 'Copied ✓' : 'Copy link'}
+                </button>
+                <a href={`https://wa.me/?text=${encodeURIComponent(`Please review and sign off "${result.milestone?.name || r.milestone_name}" on PAKKA: ${link.url}`)}`}
+                  target="_blank" rel="noreferrer" className="rounded-full bg-[#1A1714] px-4 py-2 text-xs text-paper-light">Send on WhatsApp</a>
+                <a href={link.path} target="_blank" rel="noreferrer" className="rounded-full px-4 py-2 text-xs ring-1 ring-ink/10">Open as engineer</a>
+              </div>
+            </div>
+          )}
+          {!manual && (
+            <button onClick={() => setManual(true)} className="mt-3 text-xs text-ink-mute underline underline-offset-2">
+              The engineer told me their decision: enter it on their behalf
+            </button>
+          )}
+        </div>
+      )}
+      {r.verdict === 'needs_engineer' && manual && !signoffs.some((s) => s.decision === 'approved') && (
         <form onSubmit={submit} className="mt-4 space-y-3">
-          <p className="text-sm font-light text-ink-soft">For the engineer to fill in after the site visit. PAKKA records the decision; it doesn’t make it.</p>
+          <p className="rounded-xl bg-ochre-50 p-3 text-xs text-ochre-700">
+            This will be recorded as “entered by the owner on the engineer’s behalf”. A sign-off through the engineer’s own link carries more weight.
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <input required minLength={2} placeholder="Engineer’s name" value={form.engineer_name}
               onChange={(e) => setForm({ ...form, engineer_name: e.target.value })} className={input} />

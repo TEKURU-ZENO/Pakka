@@ -52,19 +52,28 @@ def test_ask_endpoint_and_access_key(monkeypatch):
     assert "PAYMENT PLAN" in c.get("/api/brief", headers={"X-Pakka-Key": "k"}).json()["brief"]
 
 
-def test_live_socket_needs_key_and_answers_offline(monkeypatch):
+def test_live_socket_needs_a_single_use_ticket(monkeypatch):
     monkeypatch.setattr(p, "MOCK", True)
     c = TestClient(main.app)
     monkeypatch.setenv("PAKKA_ACCESS_KEY", "k")
-    try:
-        with c.websocket_connect("/api/live?key=wrong") as ws:
-            ws.receive_json()
-        raise AssertionError("socket should have been refused")
-    except Exception as e:
-        assert "4401" in str(e) or "WebSocketDisconnect" in type(e).__name__
-    with c.websocket_connect("/api/live?key=k") as ws:
+    for bad in ("/api/live?key=k", "/api/live?ticket=forged"):  # the access key in the URL is no longer accepted
+        try:
+            with c.websocket_connect(bad) as ws:
+                ws.receive_json()
+            raise AssertionError("socket should have been refused")
+        except Exception as e:
+            assert "4401" in str(e) or "WebSocketDisconnect" in type(e).__name__
+    assert c.post("/api/live-ticket").status_code == 401
+    t = c.post("/api/live-ticket", headers={"X-Pakka-Key": "k"}).json()["ticket"]
+    with c.websocket_connect(f"/api/live?ticket={t}") as ws:
         assert ws.receive_json()["type"] == "ready"
         ws.send_json({"type": "text", "text": "what happened this week?"})
         msg = ws.receive_json()
         assert msg["type"] == "transcript" and msg["role"] == "pakka"
         assert ws.receive_json()["type"] == "turn_complete"
+    try:  # used once: can't be replayed
+        with c.websocket_connect(f"/api/live?ticket={t}") as ws:
+            ws.receive_json()
+        raise AssertionError("ticket replay should fail")
+    except Exception as e:
+        assert "4401" in str(e) or "WebSocketDisconnect" in type(e).__name__

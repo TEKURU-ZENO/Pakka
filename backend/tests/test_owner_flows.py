@@ -178,3 +178,39 @@ def test_fallback_to_next_model_on_quota(monkeypatch, tmp_path):
     assert obs.stage.value == "slab_cast"
     assert seen == [p.MODEL, "backup-model"]
     assert p.last_model() == "backup-model"
+
+
+# ---- engineer link: the engineer signs, not the owner
+def test_engineer_link_records_who_signed(monkeypatch):
+    c = TestClient(main.app)
+    body = check(c, "site_rebar.jpg", "m4")
+    link = c.post(f"/api/updates/{body['id']}/engineer-link").json()
+    monkeypatch.setenv("PAKKA_ACCESS_KEY", "k")  # the engineer has no access key; the link is the credential
+    view = c.get(f"/api/engineer/{link['token']}").json()
+    assert view["report"]["verdict"] == "needs_engineer" and view["media"]
+    assert "voice" not in view and "consent" not in view and "capture" not in view
+    assert c.post(f"/api/engineer/{link['token']}/signoff",
+                  json={"engineer_name": "Er. K. Lakshmi", "decision": "approved"}).status_code == 422  # reg. no. required
+    r = c.post(f"/api/engineer/{link['token']}/signoff",
+               json={"engineer_name": "Er. K. Lakshmi", "registration_no": "TN-CE-20418", "decision": "approved",
+                     "note": "OK to pour"})
+    assert r.status_code == 200
+    s = store.list_signoffs(update_id=body["id"])[0]
+    assert s["channel"] == "engineer_link"
+    assert store.milestone_verified_at("m4") is not None
+    again = c.post(f"/api/engineer/{link['token']}/signoff",
+                   json={"engineer_name": "Someone", "registration_no": "X-1", "decision": "rework"})
+    assert again.status_code == 409  # one decision per link
+
+
+def test_owner_entered_signoff_is_labelled():
+    c = TestClient(main.app)
+    body = check(c, "site_rebar.jpg", "m4")
+    c.post(f"/api/updates/{body['id']}/signoff", json={"engineer_name": "Er. R", "decision": "approved"})
+    assert store.list_signoffs(update_id=body["id"])[0]["channel"] == "owner_entered"
+
+
+def test_no_engineer_link_for_checks_that_dont_need_one():
+    c = TestClient(main.app)
+    slab = check(c, "site_slab.jpg", "m5")
+    assert c.post(f"/api/updates/{slab['id']}/engineer-link").status_code == 400

@@ -75,6 +75,7 @@ export default function Share({ token }) {
                           <p key={s.id} className="mt-3 rounded-xl bg-white/70 p-3 text-xs text-ink-soft">
                             <Icon name="hardhat" className="mr-1 inline h-3.5 w-3.5" />
                             Engineer {s.engineer_name}: <b>{s.decision === 'approved' ? 'approved' : 'rework needed'}</b>{s.note ? ` · ${s.note}` : ''}
+                            <span className="ml-1 text-ink-faint">({s.channel === 'engineer_link' ? 'signed by the engineer' : 'entered by the owner'})</span>
                           </p>
                         ))}
                       </div>
