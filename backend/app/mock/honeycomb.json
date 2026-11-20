@@ -1,0 +1,5 @@
+{"usable": true, "quality_issue": null, "stage": "columns", "stage_confidence": 0.8,
+ "elements": [{"element": "column_concrete", "count": 1, "confidence": 0.92, "box_2d": [60, 300, 980, 640], "timestamp_s": null}],
+ "defects": [{"defect": "honeycombing", "severity": "high", "confidence": 0.81,
+   "note": "Large voids with visible aggregate near the base of the column.", "box_2d": [700, 330, 940, 610], "timestamp_s": null}],
+ "summary": "A cast column with heavy honeycombing near its base."}

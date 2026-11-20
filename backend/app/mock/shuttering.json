@@ -1,0 +1,5 @@
+{"usable": true, "quality_issue": null, "stage": "slab_shuttering", "stage_confidence": 0.86,
+ "elements": [
+  {"element": "column_concrete", "count": 12, "confidence": 0.9, "box_2d": [180, 40, 900, 960], "timestamp_s": null},
+  {"element": "slab_shuttering", "count": null, "confidence": 0.82, "box_2d": [90, 120, 420, 880], "timestamp_s": null}],
+ "defects": [], "summary": "Columns are cast and slab shuttering is partly in place. No concrete on the slab yet."}

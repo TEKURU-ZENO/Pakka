@@ -1,0 +1,3 @@
+file,true_stage,claimed_milestone,expected_verdict
+example_shuttering.jpg,slab_shuttering,m5,not_proven
+example_slab.jpg,slab_cast,m5,proven

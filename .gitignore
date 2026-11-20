@@ -1,0 +1,8 @@
+node_modules/
+dist/
+__pycache__/
+backend/static/
+data/
+.env
+eval/photos/*
+!eval/photos/.gitkeep

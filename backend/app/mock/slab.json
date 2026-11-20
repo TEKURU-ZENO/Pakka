@@ -1,0 +1,3 @@
+{"usable": true, "quality_issue": null, "stage": "slab_cast", "stage_confidence": 0.88,
+ "elements": [{"element": "slab_concrete_surface", "count": null, "confidence": 0.9, "box_2d": [250, 0, 1000, 1000], "timestamp_s": null}],
+ "defects": [], "summary": "Top surface of a freshly cast roof slab with water curing."}
