@@ -1,0 +1,4 @@
+{"usable": true, "quality_issue": null, "stage": "plinth", "stage_confidence": 0.91,
+ "elements": [
+   {"element": "plinth_beam", "count": null, "confidence": 0.89, "box_2d": [400, 100, 600, 900], "timestamp_s": null}],
+ "defects": [], "summary": "Continuous plinth beam cast at ground level connecting column footings."}

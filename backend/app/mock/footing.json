@@ -1,0 +1,4 @@
+{"usable": true, "quality_issue": null, "stage": "footing", "stage_confidence": 0.94,
+ "elements": [
+   {"element": "footing_concrete", "count": 6, "confidence": 0.93, "box_2d": [300, 150, 750, 850], "timestamp_s": null}],
+ "defects": [], "summary": "Cast concrete footings completed in excavated foundation pits."}

@@ -1,0 +1,4 @@
+{"usable": true, "quality_issue": null, "stage": "flooring", "stage_confidence": 0.95,
+ "elements": [
+   {"element": "flooring_tiles", "count": null, "confidence": 0.96, "box_2d": [300, 50, 950, 950], "timestamp_s": null}],
+ "defects": [], "summary": "Vitrified floor tiles installed and grouted throughout the living floor area."}

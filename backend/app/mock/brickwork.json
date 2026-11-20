@@ -1,0 +1,4 @@
+{"usable": true, "quality_issue": null, "stage": "brickwork", "stage_confidence": 0.94,
+ "elements": [
+   {"element": "brick_wall", "count": 4, "confidence": 0.95, "box_2d": [100, 100, 850, 900], "timestamp_s": null}],
+ "defects": [], "summary": "Red brick masonry walls erected to ceiling height."}

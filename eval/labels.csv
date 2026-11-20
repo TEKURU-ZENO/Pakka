@@ -1,3 +1,11 @@
 file,true_stage,claimed_milestone,expected_verdict
-example_shuttering.jpg,slab_shuttering,m5,not_proven
-example_slab.jpg,slab_cast,m5,proven
+photo_01_excavation.jpg,excavation,m1,not_proven
+photo_02_footing.jpg,footing,m1,needs_engineer
+photo_03_plinth.jpg,plinth,m2,proven
+photo_04_column.jpg,columns,m3,proven
+photo_05_shuttering.jpg,slab_shuttering,m5,not_proven
+photo_06_rebar.jpg,slab_reinforcement,m4,needs_engineer
+photo_07_slab.jpg,slab_cast,m5,proven
+photo_08_brickwork.jpg,brickwork,m6,proven
+photo_09_plaster.jpg,plastering,m7,proven
+photo_10_flooring.jpg,flooring,m8,proven

@@ -127,3 +127,4 @@ class VerdictReport(BaseModel):
     amount_requested_inr: Optional[int]
     amount_planned_inr: int
     engineer_gate: bool
+    prompt_version: Optional[str] = None

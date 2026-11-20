@@ -1,0 +1,4 @@
+{"usable": true, "quality_issue": null, "stage": "plastering", "stage_confidence": 0.93,
+ "elements": [
+   {"element": "plaster_finish", "count": null, "confidence": 0.92, "box_2d": [120, 80, 880, 920], "timestamp_s": null}],
+ "defects": [], "summary": "Smooth grey cement plaster finish completed on interior and exterior walls."}

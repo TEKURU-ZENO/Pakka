@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .milestones import Milestone
+from .prompts import PROMPT_VERSION_HASH
 from .schemas import (STAGE_ORDER, Finding, MediaObservation, Severity, Stage, Verdict,
                       VerdictReport)
 
@@ -107,7 +108,9 @@ def decide(milestone: Milestone, observations: list[MediaObservation],
     return _report(milestone, verdict, headline, findings, ask_next, amount_requested)
 
 
-def _report(m: Milestone, verdict: Verdict, headline: str, findings, ask_next, amount) -> VerdictReport:
+def _report(m: Milestone, verdict: Verdict, headline: str, findings, ask_next, amount,
+            prompt_version: Optional[str] = None) -> VerdictReport:
     return VerdictReport(milestone_id=m.id, milestone_name=m.name, verdict=verdict, headline=headline,
                          findings=findings, ask_next=ask_next, amount_requested_inr=amount,
-                         amount_planned_inr=m.amount_inr, engineer_gate=m.engineer_gate)
+                         amount_planned_inr=m.amount_inr, engineer_gate=m.engineer_gate,
+                         prompt_version=prompt_version or PROMPT_VERSION_HASH)

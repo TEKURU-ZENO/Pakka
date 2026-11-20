@@ -32,7 +32,7 @@ def test_mock_observation_by_keyword(monkeypatch):
     obs_slab = _mock_observation(Path("site_slab_cast.png"))
     assert obs_slab.stage == Stage.slab_cast
 
-    obs_honeycomb = _mock_observation(Path("column_honeycomb_defect.jpg"))
+    obs_honeycomb = _mock_observation(Path("honeycomb_defect.jpg"))
     assert any(d.defect == DefectType.honeycombing for d in obs_honeycomb.defects)
 
     obs_blurry = _mock_observation(Path("blurry_image.jpg"))

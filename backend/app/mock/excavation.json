@@ -1,0 +1,4 @@
+{"usable": true, "quality_issue": null, "stage": "excavation", "stage_confidence": 0.92,
+ "elements": [
+   {"element": "footing_concrete", "count": null, "confidence": 0.65, "box_2d": [200, 100, 800, 900], "timestamp_s": null}],
+ "defects": [], "summary": "Excavation trenches and foundation pits dug across the site."}

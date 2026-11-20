@@ -1,0 +1,5 @@
+{"usable": true, "quality_issue": null, "stage": "slab_reinforcement", "stage_confidence": 0.93,
+ "elements": [
+   {"element": "slab_shuttering", "count": null, "confidence": 0.88, "box_2d": [100, 100, 800, 900], "timestamp_s": null},
+   {"element": "slab_rebar_mesh", "count": null, "confidence": 0.92, "box_2d": [120, 120, 780, 880], "timestamp_s": null}],
+ "defects": [], "summary": "Slab reinforcement rebar mesh tied over shuttering deck prior to concrete pour."}

@@ -74,6 +74,7 @@ async def create_update(
         "voice": voice.model_dump() if voice else None,
         "observations": [o.model_dump() for o in observations],
         "report": report.model_dump(),
+        "prompt_version": report.prompt_version,
     }
     body["id"] = store.save_update(body)
     return body

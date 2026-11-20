@@ -1,0 +1,4 @@
+{"usable": true, "quality_issue": null, "stage": "columns", "stage_confidence": 0.95,
+ "elements": [
+   {"element": "column_concrete", "count": 8, "confidence": 0.96, "box_2d": [150, 80, 850, 920], "timestamp_s": null}],
+ "defects": [], "summary": "Ground floor reinforced concrete columns cast with formwork stripped."}
