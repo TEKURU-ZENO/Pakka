@@ -25,7 +25,7 @@ for r in rows:
         print(f"skip {r['file']} (missing)")
         continue
     m = PLAN_BY_ID[r["claimed_milestone"]]
-    obs = observe_media(path, m.name + " done")
+    obs = observe_media(path)  # blind: the claim is never shown to the model
     rep = decide(m, [obs])
     unusable += not obs.usable
     stage_ok += obs.stage.value == r["true_stage"]

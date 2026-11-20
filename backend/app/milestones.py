@@ -1,7 +1,9 @@
 """Payment plan. Deterministic config, written with the civil engineer advisor. Edit freely."""
 from pydantic import BaseModel
 
-from .schemas import ElementType as E, Stage
+from typing import Optional
+
+from .schemas import STAGE_ORDER, ElementType as E, Stage
 
 
 class Milestone(BaseModel):
@@ -43,3 +45,15 @@ DEFAULT_PLAN: list[Milestone] = [
 
 PLAN_BY_ID = {m.id: m for m in DEFAULT_PLAN}
 PLAN_BY_STAGE = {m.stage: m for m in DEFAULT_PLAN}
+
+
+def milestone_for_claimed_stage(stage: Stage) -> Optional[Milestone]:
+    """A voice note may name a stage with no milestone of its own (e.g. "shuttering done").
+    Map it to the latest milestone at or before that stage; None if nothing fits (e.g. excavation)."""
+    if stage in PLAN_BY_STAGE:
+        return PLAN_BY_STAGE[stage]
+    if stage not in STAGE_ORDER:
+        return None
+    rank = STAGE_ORDER.index(stage)
+    earlier = [m for m in DEFAULT_PLAN if STAGE_ORDER.index(m.stage) <= rank]
+    return max(earlier, key=lambda m: STAGE_ORDER.index(m.stage)) if earlier else None

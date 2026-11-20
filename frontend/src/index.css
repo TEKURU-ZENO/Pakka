@@ -1,4 +1,48 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-body { font-family: Inter, system-ui, sans-serif; }
+
+@layer base {
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+    text-rendering: optimizeLegibility;
+  }
+  ::selection { background: #f2c58a; color: #1c1d1a; }
+  :focus-visible { outline: 1.5px solid #6e7b6e; outline-offset: 3px; border-radius: 9999px; }
+}
+
+@layer components {
+  /* Drafting-paper grid, used on "drawing sheet" surfaces */
+  .bg-drafting {
+    background-image:
+      linear-gradient(rgba(110, 123, 110, 0.09) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(110, 123, 110, 0.09) 1px, transparent 1px),
+      linear-gradient(rgba(110, 123, 110, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(110, 123, 110, 0.045) 1px, transparent 1px);
+    background-size: 80px 80px, 80px 80px, 16px 16px, 16px 16px;
+  }
+  .hairline { border-color: rgba(28, 29, 26, 0.08); }
+  .text-balance { text-wrap: balance; }
+}
+
+/* Film grain: one fixed, non-interactive layer, never attached to scrolling content */
+.grain::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

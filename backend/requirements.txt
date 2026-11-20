@@ -1,6 +1,9 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-python-multipart>=0.0.9
-pydantic>=2.7
-google-genai>=1.0
-pillow>=10.0.0
+# Pinned: a minor release of google-genai once changed resp.parsed behaviour. Bump deliberately, re-run pytest + eval.
+fastapi==0.136.3
+starlette==1.1.0
+uvicorn[standard]==0.48.0
+python-multipart==0.0.26
+pydantic==2.12.5
+google-genai==2.6.0
+pillow==12.1.1
+pillow-heif==1.8.1

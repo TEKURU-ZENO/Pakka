@@ -31,7 +31,7 @@ def test_upload_hygiene_validation():
     assert "Unsupported file type" in excinfo.value.detail
 
     # 2. Reject missing visual files (only audio uploaded)
-    audio_upload = UploadFile(file=io.BytesIO(b"audio content"), filename="mestri_voice.opus")
+    audio_upload = UploadFile(file=io.BytesIO(b"OggS" + bytes(60)), filename="mestri_voice.opus")
     with pytest.raises(HTTPException) as excinfo2:
         create_update(files=[audio_upload], milestone_id="m5")
     assert excinfo2.value.status_code == 400
@@ -68,7 +68,8 @@ def test_duplicate_photo_integrity_check(monkeypatch):
     assert "audit_stamp" in res_1
     assert res_1["audit_stamp"]["human_decides_payment"] is True
     assert "thresholds" in res_1["audit_stamp"]
-    assert res_1["audit_stamp"]["rules_version"] == "1.0.0"
+    from app.rules import RULES_VERSION
+    assert res_1["audit_stamp"]["rules_version"] == RULES_VERSION
 
     # 2. Second upload with SAME photo pattern (different filename)
     upload_2 = UploadFile(file=io.BytesIO(img_bytes), filename="photo_slab_reuploaded.jpg")
